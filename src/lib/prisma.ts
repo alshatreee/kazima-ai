@@ -1,6 +1,5 @@
 import { PrismaMariaDb } from "@prisma/adapter-mariadb";
 import { PrismaClient } from "../generated/prisma/client";
-import mariadb from "mariadb";
 
 const databaseUrl = process.env.DATABASE_URL;
 
@@ -17,7 +16,8 @@ function createPrismaClient(): PrismaClient | null {
   // Parse the URL to extract connection parameters
   const url = new URL(databaseUrl);
   console.log(`[Prisma] Connecting to ${url.hostname}:${url.port || "3306"} db=${url.pathname.slice(1)} user=${url.username}`);
-  const pool = mariadb.createPool({
+
+  const adapter = new PrismaMariaDb({
     host: url.hostname,
     port: parseInt(url.port || "3306"),
     user: decodeURIComponent(url.username),
@@ -28,8 +28,6 @@ function createPrismaClient(): PrismaClient | null {
     connectTimeout: 30000,
     acquireTimeout: 30000,
   });
-
-  const adapter = new PrismaMariaDb(pool);
   return new PrismaClient({ adapter });
 }
 

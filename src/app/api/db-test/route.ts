@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import mariadb from "mariadb";
+import * as mariadb from "mariadb";
 
 export const dynamic = "force-dynamic";
 

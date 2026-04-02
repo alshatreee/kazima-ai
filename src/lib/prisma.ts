@@ -16,6 +16,7 @@ function createPrismaClient(): PrismaClient | null {
 
   // Parse the URL to extract connection parameters
   const url = new URL(databaseUrl);
+  console.log(`[Prisma] Connecting to ${url.hostname}:${url.port || "3306"} db=${url.pathname.slice(1)} user=${url.username}`);
   const pool = mariadb.createPool({
     host: url.hostname,
     port: parseInt(url.port || "3306"),
@@ -24,7 +25,8 @@ function createPrismaClient(): PrismaClient | null {
     database: url.pathname.slice(1),
     ssl: { rejectUnauthorized: false },
     connectionLimit: 5,
-    connectTimeout: 10000,
+    connectTimeout: 30000,
+    acquireTimeout: 30000,
   });
 
   const adapter = new PrismaMariaDb(pool);

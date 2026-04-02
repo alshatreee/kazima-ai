@@ -1,0 +1,120 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "mysql"
+}
+
+// Articles/Topics - main content table from wb_mod_topics
+model Topic {
+  topicId          Int      @id @map("topic_id")
+  sectionId        Int      @map("section_id")
+  pageId           Int      @map("page_id")
+  active           Int      @default(4)
+  hascontent       Int      @default(2)
+  publishedWhen    Int      @map("published_when")
+  publishedUntil   Int      @map("published_until")
+  postedFirst      Int      @map("posted_first")
+  postedModified   Int      @map("posted_modified")
+  postedBy         Int      @map("posted_by")
+  modifiedBy       Int      @map("modified_by")
+  authors          String   @default(",1,")
+  position         Int      @default(22)
+  link             String   @db.VarChar(255)
+  title            String   @db.VarChar(255)
+  keywords         String   @db.VarChar(255)
+  picture          String   @db.VarChar(255)
+  contentShort     String   @map("content_short") @db.Text
+  contentLong      String   @map("content_long") @db.LongText
+  commenting       Int      @default(-1)
+  ratingVal        Int      @default(0) @map("rating_val")
+  topicScore       Int      @default(0) @map("topic_score")
+  commentsCount    Int      @default(0) @map("comments_count")
+  views            Int      @default(0)
+  optionId         Int      @default(1) @map("option_id")
+  attributeId      Int      @default(1) @map("attribute_id")
+  author           String   @default("") @db.VarChar(255)
+  shortDescription String   @default("") @map("short_description") @db.Text
+  description      String   @default("") @db.Text
+  contentExtra     String   @default("") @map("content_extra") @db.Text
+  tagcloud         String   @default("") @db.Text
+  ratingBase       String   @default("") @map("rating_base") @db.VarChar(255)
+  pnsaCache        String   @default("") @map("pnsa_cache") @db.Text
+
+  @@map("wb_mod_topics")
+}
+
+// Categories/Attributes
+model Attribute {
+  attributeId   Int     @id @map("attribute_id")
+  optionId      Int     @map("option_id")
+  attributeName String  @map("attribute_name") @db.VarChar(50)
+  icon          String? @db.VarChar(255)
+  position      Int?
+
+  @@map("wb_mod_bakery_attributes")
+}
+
+// Options (المقالات، كتب ومخطوطات، كتاب الموقع)
+model Option {
+  optionId   Int     @id @map("option_id")
+  optionName String  @map("option_name") @db.VarChar(50)
+  icon       String? @db.VarChar(255)
+  position   Int?
+
+  @@map("wb_mod_bakery_options")
+}
+
+// Pages
+model Page {
+  pageId       Int    @id @map("page_id")
+  parentId     Int    @default(0) @map("parent")
+  root         Int    @default(0) @map("root_parent")
+  level        Int    @default(0)
+  link         String @default("") @db.VarChar(255)
+  target       String @default("_top") @db.VarChar(7)
+  pageTitle    String @default("") @map("page_title") @db.VarChar(255)
+  menuTitle    String @default("") @map("menu_title") @db.VarChar(255)
+  description  String @default("") @db.VarChar(255)
+  keywords     String @default("") @db.VarChar(255)
+  pageTrail    String @default("") @map("page_trail") @db.VarChar(255)
+  template     String @default("") @db.VarChar(255)
+  visibility   String @default("public") @db.VarChar(25)
+  position     Int    @default(0)
+  menu         Int    @default(0)
+  language     String @default("") @db.VarChar(5)
+  searching    Int    @default(0)
+  modified_when Int   @default(0)
+  modified_by   Int   @default(0)
+
+  @@map("wb_pages")
+}
+
+// AI Interactions log
+model AiInteraction {
+  id        Int      @id @default(autoincrement())
+  mode      String   @db.VarChar(50)
+  input     String   @db.LongText
+  output    String   @db.LongText
+  metadata  String?  @db.Text
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("kazima_ai_interactions")
+}
+
+// Extracted entities from AI processing
+model ExtractedEntity {
+  id            Int      @id @default(autoincrement())
+  topicId       Int?     @map("topic_id")
+  entityType    String   @map("entity_type") @db.VarChar(50)
+  entityValue   String   @map("entity_value") @db.VarChar(500)
+  confidence    Float    @default(0)
+  sourceText    String?  @map("source_text") @db.Text
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@index([entityType])
+  @@index([topicId])
+  @@map("kazima_extracted_entities")
+}

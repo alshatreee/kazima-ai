@@ -1,0 +1,486 @@
+openapi: 3.1.0
+info:
+  title: Kazima AI Scholarly Assistant API
+  version: 1.0.0
+  summary: Source-grounded API for Kazima's cultural and scholarly assistant
+servers:
+  - url: https://kazima.org
+paths:
+  /api/kazima-assistant/query:
+    post:
+      summary: Answer a user query with retrieval, citations, and confidence metadata
+      operationId: queryKazimaAssistant
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AssistantQueryRequest"
+      responses:
+        "200":
+          description: Source-grounded answer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AssistantQueryResponse"
+  /api/kazima-assistant/retrieve:
+    post:
+      summary: Retrieve candidate Kazima sources without generation
+      operationId: retrieveKazimaSources
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RetrievalRequest"
+      responses:
+        "200":
+          description: Ranked retrieval hits
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RetrievalResponse"
+  /api/kazima-assistant/sources/{sourceId}:
+    get:
+      summary: Get a normalized source document with chunks and metadata
+      operationId: getKazimaSource
+      parameters:
+        - name: sourceId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Source document
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SourceDocument"
+  /api/kazima-assistant/manuscripts/ocr:
+    post:
+      summary: Register OCR processing for an uploaded manuscript asset
+      operationId: runManuscriptOcr
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ManuscriptOcrRequest"
+      responses:
+        "202":
+          description: OCR job accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AsyncJobResponse"
+  /api/kazima-assistant/manuscripts/compare:
+    post:
+      summary: Compare two manuscript witnesses and return detected differences
+      operationId: compareManuscripts
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ManuscriptComparisonRequest"
+      responses:
+        "200":
+          description: Comparison result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ManuscriptComparisonResponse"
+  /api/kazima-assistant/sanad/analyze:
+    post:
+      summary: Parse a sanad, identify narrators, and build a graph-friendly result
+      operationId: analyzeSanad
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SanadAnalysisRequest"
+      responses:
+        "200":
+          description: Structured sanad analysis
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SanadAnalysisResponse"
+  /api/kazima-assistant/sanad/compare:
+    post:
+      summary: Compare two sanad inputs and detect intersections and divergences
+      operationId: compareSanad
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SanadComparisonRequest"
+      responses:
+        "200":
+          description: Structured sanad comparison
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SanadComparisonResponse"
+  /api/kazima-assistant/research-workspaces:
+    post:
+      summary: Create a research workspace for saved answers and sources
+      operationId: createResearchWorkspace
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResearchWorkspaceCreateRequest"
+      responses:
+        "201":
+          description: Workspace created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResearchWorkspace"
+components:
+  schemas:
+    AssistantMode:
+      type: string
+      enum: [brief, research]
+    AssistantScope:
+      type: string
+      enum:
+        - kazima_primary
+        - kazima_primary_plus_context
+        - general_knowledge
+        - needs_verification
+    ConfidenceLevel:
+      type: string
+      enum: [high, medium, low]
+    SourceContentType:
+      type: string
+      enum:
+        - article
+        - biography
+        - manuscript
+        - page
+        - institution
+        - timeline
+        - topic
+    SourceExcerpt:
+      type: object
+      required: [sourceId, title, type, excerpt, score]
+      properties:
+        sourceId:
+          type: string
+        chunkId:
+          type: string
+        title:
+          type: string
+        type:
+          $ref: "#/components/schemas/SourceContentType"
+        excerpt:
+          type: string
+        url:
+          type: string
+        score:
+          type: number
+        sectionTitle:
+          type: string
+        pageNumber:
+          type: integer
+    Citation:
+      type: object
+      required: [id, label, sourceId, excerpt, confidence]
+      properties:
+        id:
+          type: string
+        label:
+          type: string
+        sourceId:
+          type: string
+        excerpt:
+          type: string
+        url:
+          type: string
+        confidence:
+          $ref: "#/components/schemas/ConfidenceLevel"
+        note:
+          type: string
+    AnswerSection:
+      type: object
+      required: [title, body]
+      properties:
+        title:
+          type: string
+        body:
+          type: string
+    AssistantQueryRequest:
+      type: object
+      required: [query]
+      properties:
+        query:
+          type: string
+        mode:
+          $ref: "#/components/schemas/AssistantMode"
+        maxSources:
+          type: integer
+          minimum: 1
+          maximum: 10
+        includeReadMore:
+          type: boolean
+        userIntent:
+          type: string
+        pageContext:
+          type: object
+          properties:
+            pageId:
+              type: integer
+            pageTitle:
+              type: string
+            pageType:
+              type: string
+    AssistantQueryResponse:
+      type: object
+      required:
+        - query
+        - mode
+        - scope
+        - confidence
+        - answer
+        - summary
+        - sections
+        - citations
+        - readMore
+        - followUpQuestions
+        - retrieval
+      properties:
+        query:
+          type: string
+        normalizedQuery:
+          type: string
+        mode:
+          $ref: "#/components/schemas/AssistantMode"
+        scope:
+          $ref: "#/components/schemas/AssistantScope"
+        confidence:
+          $ref: "#/components/schemas/ConfidenceLevel"
+        answer:
+          type: string
+        summary:
+          type: string
+        sections:
+          type: array
+          items:
+            $ref: "#/components/schemas/AnswerSection"
+        citations:
+          type: array
+          items:
+            $ref: "#/components/schemas/Citation"
+        readMore:
+          type: array
+          items:
+            type: object
+            required: [title, url]
+            properties:
+              title:
+                type: string
+              url:
+                type: string
+        followUpQuestions:
+          type: array
+          items:
+            type: string
+        disclaimers:
+          type: array
+          items:
+            type: string
+        retrieval:
+          type: object
+          required: [returnedSources, sources]
+          properties:
+            returnedSources:
+              type: integer
+            totalCandidates:
+              type: integer
+            sources:
+              type: array
+              items:
+                $ref: "#/components/schemas/SourceExcerpt"
+    RetrievalRequest:
+      type: object
+      required: [query]
+      properties:
+        query:
+          type: string
+        maxSources:
+          type: integer
+        filters:
+          type: object
+          additionalProperties: true
+    RetrievalResponse:
+      type: object
+      required: [query, total, results]
+      properties:
+        query:
+          type: string
+        total:
+          type: integer
+        results:
+          type: array
+          items:
+            $ref: "#/components/schemas/SourceExcerpt"
+    SourceDocument:
+      type: object
+      required: [id, title, type, verificationState, chunks]
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        type:
+          $ref: "#/components/schemas/SourceContentType"
+        verificationState:
+          type: string
+        url:
+          type: string
+        summary:
+          type: string
+        chunks:
+          type: array
+          items:
+            $ref: "#/components/schemas/SourceExcerpt"
+    ManuscriptOcrRequest:
+      type: object
+      required: [assetId]
+      properties:
+        assetId:
+          type: string
+        language:
+          type: string
+          default: ar
+        force:
+          type: boolean
+    AsyncJobResponse:
+      type: object
+      required: [jobId, status]
+      properties:
+        jobId:
+          type: string
+        status:
+          type: string
+        message:
+          type: string
+    ManuscriptComparisonRequest:
+      type: object
+      required: [leftAssetId, rightAssetId]
+      properties:
+        leftAssetId:
+          type: string
+        rightAssetId:
+          type: string
+        strategy:
+          type: string
+          enum: [page, paragraph]
+    ManuscriptComparisonResponse:
+      type: object
+      required: [leftAssetId, rightAssetId, differences]
+      properties:
+        leftAssetId:
+          type: string
+        rightAssetId:
+          type: string
+        differences:
+          type: array
+          items:
+            type: object
+            required: [kind, leftText, rightText]
+            properties:
+              kind:
+                type: string
+              leftText:
+                type: string
+              rightText:
+                type: string
+              note:
+                type: string
+    SanadAnalysisRequest:
+      type: object
+      required: [text]
+      properties:
+        text:
+          type: string
+        compareWith:
+          type: string
+    SanadAnalysisResponse:
+      type: object
+      required: [text, narrators, edges]
+      properties:
+        text:
+          type: string
+        narrators:
+          type: array
+          items:
+            type: object
+            required: [label]
+            properties:
+              label:
+                type: string
+              canonicalName:
+                type: string
+              scholarId:
+                type: string
+              matched:
+                type: boolean
+        edges:
+          type: array
+          items:
+            type: object
+            required: [from, to]
+            properties:
+              from:
+                type: string
+              to:
+                type: string
+    SanadComparisonRequest:
+      type: object
+      required: [leftText, rightText]
+      properties:
+        leftText:
+          type: string
+        rightText:
+          type: string
+    SanadComparisonResponse:
+      type: object
+      required: [sharedNarrators, leftOnly, rightOnly]
+      properties:
+        sharedNarrators:
+          type: array
+          items:
+            type: string
+        leftOnly:
+          type: array
+          items:
+            type: string
+        rightOnly:
+          type: array
+          items:
+            type: string
+    ResearchWorkspaceCreateRequest:
+      type: object
+      required: [title]
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+    ResearchWorkspace:
+      type: object
+      required: [id, title]
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        description:
+          type: string

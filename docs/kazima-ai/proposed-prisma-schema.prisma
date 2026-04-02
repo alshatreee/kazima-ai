@@ -1,0 +1,227 @@
+generator client {
+  provider = "prisma-client"
+}
+
+datasource db {
+  provider = "mysql"
+}
+
+enum SourceDocumentType {
+  article
+  biography
+  manuscript
+  page
+  institution
+  timeline
+  topic
+}
+
+enum VerificationState {
+  verified
+  reviewed
+  unreviewed
+  external
+}
+
+enum AssistantMode {
+  brief
+  research
+}
+
+enum AssistantScope {
+  kazima_primary
+  kazima_primary_plus_context
+  general_knowledge
+  needs_verification
+}
+
+enum ConfidenceLevel {
+  high
+  medium
+  low
+}
+
+enum ResearchItemType {
+  answer
+  source
+  manuscript
+  sanad
+}
+
+model SourceDocument {
+  id                Int               @id @default(autoincrement())
+  legacyTopicId     Int?              @map("legacy_topic_id")
+  legacyPageId      Int?              @map("legacy_page_id")
+  slug              String            @unique @db.VarChar(255)
+  title             String            @db.VarChar(500)
+  summary           String?           @db.Text
+  body              String?           @db.LongText
+  type              SourceDocumentType
+  verificationState VerificationState @default(unreviewed)
+  language          String            @default("ar") @db.VarChar(16)
+  authorName        String?           @map("author_name") @db.VarChar(255)
+  sourceUrl         String?           @map("source_url") @db.VarChar(1024)
+  searchableText    String            @map("searchable_text") @db.LongText
+  publishedAt       DateTime?         @map("published_at")
+  createdAt         DateTime          @default(now()) @map("created_at")
+  updatedAt         DateTime          @updatedAt @map("updated_at")
+  chunks            SourceChunk[]
+  metadata          SourceMetadata[]
+  citationLogs      CitationLog[]
+  manuscriptAsset   ManuscriptAsset?
+
+  @@index([legacyTopicId])
+  @@index([legacyPageId])
+  @@index([type, verificationState])
+  @@map("kazima_source_documents")
+}
+
+model SourceChunk {
+  id             Int            @id @default(autoincrement())
+  documentId     Int            @map("document_id")
+  ordinal        Int
+  sectionTitle   String?        @map("section_title") @db.VarChar(255)
+  pageNumber     Int?           @map("page_number")
+  text           String         @db.LongText
+  cleanText      String         @map("clean_text") @db.LongText
+  tokenCount     Int?           @map("token_count")
+  embeddingModel String?        @map("embedding_model") @db.VarChar(120)
+  embeddingRef   String?        @map("embedding_ref") @db.VarChar(191)
+  scoreBoost     Float          @default(1) @map("score_boost")
+  retrievalTags  String?        @map("retrieval_tags") @db.Text
+  createdAt      DateTime       @default(now()) @map("created_at")
+  document       SourceDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  citationLogs   CitationLog[]
+
+  @@unique([documentId, ordinal])
+  @@index([documentId])
+  @@map("kazima_source_chunks")
+}
+
+model SourceMetadata {
+  id         Int            @id @default(autoincrement())
+  documentId Int            @map("document_id")
+  key        String         @db.VarChar(100)
+  value      String         @db.Text
+  document   SourceDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([documentId, key])
+  @@map("kazima_source_metadata")
+}
+
+model QueryLog {
+  id              Int             @id @default(autoincrement())
+  query           String          @db.Text
+  normalizedQuery String?         @map("normalized_query") @db.Text
+  mode            AssistantMode
+  scope           AssistantScope
+  confidence      ConfidenceLevel
+  answerText      String          @map("answer_text") @db.LongText
+  summary         String?         @db.Text
+  retrievalCount  Int             @default(0) @map("retrieval_count")
+  responseMs      Int?            @map("response_ms")
+  createdAt       DateTime        @default(now()) @map("created_at")
+  citationLogs    CitationLog[]
+
+  @@index([mode, createdAt])
+  @@map("kazima_query_logs")
+}
+
+model CitationLog {
+  id         Int             @id @default(autoincrement())
+  queryLogId Int             @map("query_log_id")
+  documentId Int             @map("document_id")
+  chunkId    Int?            @map("chunk_id")
+  label      String          @db.VarChar(255)
+  excerpt    String          @db.Text
+  confidence ConfidenceLevel
+  createdAt  DateTime        @default(now()) @map("created_at")
+  queryLog   QueryLog        @relation(fields: [queryLogId], references: [id], onDelete: Cascade)
+  document   SourceDocument  @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  chunk      SourceChunk?    @relation(fields: [chunkId], references: [id], onDelete: SetNull)
+
+  @@index([queryLogId])
+  @@index([documentId])
+  @@map("kazima_citation_logs")
+}
+
+model ManuscriptAsset {
+  id          Int             @id @default(autoincrement())
+  documentId  Int             @unique @map("document_id")
+  storagePath String          @map("storage_path") @db.VarChar(1024)
+  mimeType    String          @map("mime_type") @db.VarChar(100)
+  pageCount   Int?            @map("page_count")
+  ocrStatus   String          @default("pending") @map("ocr_status") @db.VarChar(50)
+  ocrEngine   String?         @map("ocr_engine") @db.VarChar(120)
+  createdAt   DateTime        @default(now()) @map("created_at")
+  updatedAt   DateTime        @updatedAt @map("updated_at")
+  document    SourceDocument  @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  pages       ManuscriptPage[]
+
+  @@map("kazima_manuscript_assets")
+}
+
+model ManuscriptPage {
+  id           Int             @id @default(autoincrement())
+  assetId      Int             @map("asset_id")
+  pageNumber   Int             @map("page_number")
+  imagePath    String?         @map("image_path") @db.VarChar(1024)
+  ocrText      String?         @map("ocr_text") @db.LongText
+  reviewedText String?         @map("reviewed_text") @db.LongText
+  confidence   Float?          @default(0)
+  asset        ManuscriptAsset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@unique([assetId, pageNumber])
+  @@map("kazima_manuscript_pages")
+}
+
+model SanadNode {
+  id            Int         @id @default(autoincrement())
+  canonicalName String      @map("canonical_name") @db.VarChar(255)
+  displayName   String      @map("display_name") @db.VarChar(255)
+  scholarId     Int?        @map("scholar_id")
+  createdAt     DateTime    @default(now()) @map("created_at")
+  outgoingEdges SanadEdge[] @relation("SanadEdgeFrom")
+  incomingEdges SanadEdge[] @relation("SanadEdgeTo")
+
+  @@index([canonicalName])
+  @@map("kazima_sanad_nodes")
+}
+
+model SanadEdge {
+  id         Int       @id @default(autoincrement())
+  fromNodeId Int       @map("from_node_id")
+  toNodeId   Int       @map("to_node_id")
+  sourceText String?   @map("source_text") @db.Text
+  createdAt  DateTime  @default(now()) @map("created_at")
+  fromNode   SanadNode @relation("SanadEdgeFrom", fields: [fromNodeId], references: [id], onDelete: Cascade)
+  toNode     SanadNode @relation("SanadEdgeTo", fields: [toNodeId], references: [id], onDelete: Cascade)
+
+  @@index([fromNodeId])
+  @@index([toNodeId])
+  @@map("kazima_sanad_edges")
+}
+
+model ResearchWorkspace {
+  id          Int                     @id @default(autoincrement())
+  title       String                  @db.VarChar(255)
+  description String?                 @db.Text
+  createdAt   DateTime                @default(now()) @map("created_at")
+  updatedAt   DateTime                @updatedAt @map("updated_at")
+  items       ResearchWorkspaceItem[]
+
+  @@map("kazima_research_workspaces")
+}
+
+model ResearchWorkspaceItem {
+  id          Int               @id @default(autoincrement())
+  workspaceId Int               @map("workspace_id")
+  itemType    ResearchItemType  @map("item_type")
+  label       String            @db.VarChar(255)
+  payload     String            @db.LongText
+  createdAt   DateTime          @default(now()) @map("created_at")
+  workspace   ResearchWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, itemType])
+  @@map("kazima_research_workspace_items")
+}

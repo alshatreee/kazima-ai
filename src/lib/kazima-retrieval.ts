@@ -78,6 +78,10 @@ export async function retrieveFromTopics(
     return { sources: [], totalCandidates: 0 };
   }
 
+  if (!prisma) {
+    return { sources: [], totalCandidates: 0 };
+  }
+
   const whereClause: Record<string, unknown> = { active: 4 };
 
   if (filters?.optionIds?.length) {

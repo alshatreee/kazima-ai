@@ -9,6 +9,10 @@ export async function GET(request: NextRequest) {
   const limit = parseInt(searchParams.get("limit") || "50");
 
   try {
+    if (!prisma) {
+      return NextResponse.json({ error: "Database not configured" }, { status: 503 });
+    }
+
     const entities = await prisma.extractedEntity.findMany({
       where: {
         ...(entityType ? { entityType } : {}),

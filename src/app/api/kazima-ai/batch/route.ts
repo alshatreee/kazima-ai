@@ -5,6 +5,10 @@ import { processKazimaAI } from "@/lib/kazima-ai";
 // POST /api/kazima-ai/batch — Process multiple articles for entity extraction
 export async function POST(request: NextRequest) {
   try {
+    if (!prisma) {
+      return NextResponse.json({ error: "Database not configured" }, { status: 503 });
+    }
+
     const { limit = 10, offset = 0 } = await request.json();
 
     // Fetch articles from database

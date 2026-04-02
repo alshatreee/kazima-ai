@@ -5,6 +5,7 @@ import type {
 } from "./kazima-assistant-contract";
 
 const modeInstructions: Record<AssistantResponseMode, string> = {
+  retrieve: "Return raw retrieval results without AI augmentation.",
   brief: [
     "Return a concise answer.",
     "Use short, direct paragraphs.",

@@ -170,12 +170,12 @@ function validateScope(value?: string): string {
     "general_knowledge",
     "needs_verification",
   ];
-  return validScopes.includes(value) ? value : "needs_verification";
+  return value && validScopes.includes(value) ? value : "needs_verification";
 }
 
 function validateConfidence(value?: string): string {
   const validConfidences = ["high", "medium", "low"];
-  return validConfidences.includes(value) ? value : "medium";
+  return value && validConfidences.includes(value) ? value : "medium";
 }
 
 export async function GET() {
@@ -237,7 +237,10 @@ export async function POST(request: NextRequest) {
       )
       .join("\n\n");
 
-    const userPrompt = buildScholarUserPrompt(query, userIntent, sourcesText);
+    const userPrompt = buildScholarUserPrompt({
+      request: { query, mode, userIntent },
+      sources: retrieval.sources,
+    });
 
     const aiResponse = await client.messages.create({
       model: AI_MODEL,

@@ -3,15 +3,20 @@ import { PrismaClient } from "../generated/prisma/client";
 
 const databaseUrl = process.env.DATABASE_URL;
 
-if (!databaseUrl) {
-  throw new Error("DATABASE_URL is not configured.");
-}
-
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
 };
 
-const adapter = new PrismaMariaDb(databaseUrl);
+function createPrismaClient(): PrismaClient | null {
+  if (!databaseUrl) {
+    console.warn("DATABASE_URL is not configured. Database features disabled.");
+    return null;
+  }
+  const adapter = new PrismaMariaDb(databaseUrl);
+  return new PrismaClient({ adapter });
+}
 
-export const prisma = globalForPrisma.prisma ?? new PrismaClient({ adapter });
-if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
+export const prisma = globalForPrisma.prisma ?? createPrismaClient();
+if (process.env.NODE_ENV !== "production" && prisma) {
+  globalForPrisma.prisma = prisma;
+}

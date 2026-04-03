@@ -36,7 +36,7 @@ export async function GET() {
     results.connected = true;
 
     const rows = await conn.query("SELECT COUNT(*) as cnt FROM wb_mod_topics");
-    results.topicCount = rows[0].cnt;
+    results.topicCount = Number(rows[0].cnt);
 
     const sslStatus = await conn.query("SHOW STATUS LIKE 'Ssl_cipher'");
     results.sslCipher = sslStatus[0]?.Value || "none";

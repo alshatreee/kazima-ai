@@ -158,7 +158,7 @@ HÂ]\ÈÛÝ\Ù\Î×KÝ[Ø[Y]\ÎNÂB
         title: topic.title,
         type: resolveContentType(topic.optionId),
         excerpt,
-        url: `/pages/topics/index.php?topic_id=${topic.topicId}`,
+        url: `https://kazima.org/pages/topics/index.php?topic_id=${topic.topicId}`,
         score: Math.min(topic.score / 10, 1.0),
       };
     });

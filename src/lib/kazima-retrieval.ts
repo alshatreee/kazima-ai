@@ -4,6 +4,9 @@ import type {
   SourceContentType,
   SourceExcerpt,
 } from "./kazima-assistant-contract";
+import {
+  retrieveFromExternalSources,
+} from "./kazima-external-sources";
 
 const HTML_TAG_RE = /<[^>]*>/g;
 const NBSP_RE = /&nbsp;/g;
@@ -65,6 +68,7 @@ interface ScoredTopic {
 export interface RetrievalResult {
   sources: SourceExcerpt[];
   totalCandidates: number;
+  externalSourcesUsed?: boolean;
 }
 
 export async function retrieveFromTopics(
@@ -74,90 +78,132 @@ export async function retrieveFromTopics(
 ): Promise<RetrievalResult> {
   const keywords = splitKeywords(query);
 
-  if (keywords.length === 0) {
-    return { sources: [], totalCandidates: 0 };
-  }
+  if (keywords.length ÏOH
+HÂ]\ÈÛÝ\Ù\Î×KÝ[Ø[Y]\ÎNÂBËÈ8¥ 8¥  1. Local DB retrieval ââââââââââââââââââââââââââââââââââââââââââââââââââ
+  let localSources: SourceExcerpt[] = [];
+  let totalCandidates = 0;
 
-  if (!prisma) {
-    return { sources: [], totalCandidates: 0 };
-  }
+  if (prisma) {
+    const whereClause: Record<string, unknown> = { active: 4 };
 
-  const whereClause: Record<string, unknown> = { active: 4 };
-
-  if (filters?.optionIds?.length) {
-    whereClause.optionId = { in: filters.optionIds };
-  }
-  if (filters?.attributeIds?.length) {
-    whereClause.attributeId = { in: filters.attributeIds };
-  }
-  if (filters?.pageIds?.length) {
-    whereClause.pageId = { in: filters.pageIds };
-  }
-
-  const orConditions = keywords.flatMap((keyword) => [
-    { title: { contains: keyword } },
-    { contentShort: { contains: keyword } },
-    { contentLong: { contains: keyword } },
-  ]);
-
-  const topics = await prisma.topic.findMany({
-    where: {
-      ...whereClause,
-      OR: orConditions,
-    },
-    take: maxSources * 4,
-    select: {
-      topicId: true,
-      title: true,
-      contentShort: true,
-      contentLong: true,
-      link: true,
-      optionId: true,
-      attributeId: true,
-    },
-  });
-
-  const scored: ScoredTopic[] = topics.map((topic) => {
-    let score = 0;
-    const titleLower = topic.title.toLowerCase();
-    const shortPlain = stripHtml(topic.contentShort || "");
-    const longPlain = stripHtml(topic.contentLong || "");
-
-    for (const keyword of keywords) {
-      const normalizedKeyword = keyword.toLowerCase();
-
-      if (titleLower.includes(normalizedKeyword)) score += 3;
-      if (shortPlain.includes(keyword)) score += 2;
-      if (longPlain.includes(keyword)) score += 1;
+    if (filters?.optionIds?.length) {
+      whereClause.optionId = { in: filters.optionIds };
+    }
+    if (filters?.attributeIds?.length) {
+      whereClause.attributeId = { in: filters.attributeIds };
+    }
+    if (filters?.pageIds?.length) {
+      whereClause.pageId = { in: filters.pageIds };
     }
 
-    return { ...topic, score };
-  });
+    const orConditions = keywords.flatMap((keyword) => [
+      { title: { contains: keyword } },
+      { contentShort: { contains: keyword } },
+      { contentLong: { contains: keyword } },
+    ]);
 
-  const topResults = scored
-    .filter((topic) => topic.score > 0)
-    .filter((topic) => {
-      if (!filters?.contentTypes?.length) return true;
-      return filters.contentTypes.includes(resolveContentType(topic.optionId));
-    })
-    .sort((left, right) => right.score - left.score)
-    .slice(0, maxSources);
+    const topics = await prisma.topic.findMany({
+      where: {
+        ...whereClause,
+        OR: orConditions,
+      },
+      take: maxSources * 4,
+      select: {
+        topicId: true,
+        title: true,
+        contentShort: true,
+        contentLong: true,
+        link: true,
+        optionId: true,
+        attributeId: true,
+      },
+    });
 
-  const sources: SourceExcerpt[] = topResults.map((topic) => {
-    const shortPlain = stripHtml(topic.contentShort || "");
-    const excerpt = shortPlain.length > 280
-      ? `${shortPlain.substring(0, 280)}...`
-      : shortPlain;
+    totalCandidates = topics.length;
 
-    return {
-      sourceId: `topic-${topic.topicId}`,
-      title: topic.title,
-      type: resolveContentType(topic.optionId),
-      excerpt,
-      url: `/pages/topics/index.php?topic_id=${topic.topicId}`,
-      score: topic.score,
-    };
-  });
+    const scored: ScoredTopic[] = topics.map((topic) => {
+      let score = 0;
+      const titleLower = topic.title.toLowerCase();
+      const shortPlain = stripHtml(topic.contentShort || "");
+      const longPlain = stripHtml(topic.contentLong || "");
 
-  return { sources, totalCandidates: topics.length };
+      for (const keyword of keywords) {
+        const normalizedKeyword = keyword.toLowerCase();
+
+        if (titleLower.includes(normalizedKeyword)) score += 3;
+        if (shortPlain.includes(keyword)) score += 2;
+        if (longPlain.includes(keyword)) score += 1;
+      }
+
+      return { ...topic, score };
+    });
+
+    const topLocal = scored
+      .filter((topic) => topic.score > 0)
+      .filter((topic) => {
+        if (!filters?.contentTypes?.length) return true;
+        return filters.contentTypes.includes(resolveContentType(topic.optionId));
+      })
+      .sort((left, right) => right.score - left.score)
+      .slice(0, maxSources);
+
+    localSources = topLocal.map((topic) => {
+      const shortPlain = stripHtml(topic.contentShort || "");
+      const excerpt = shortPlain.length > 280
+        ? `${shortPlain.substring(0, 280)}...`
+        : shortPlain;
+
+      return {
+        sourceId: `topic-${topic.topicId}`,
+        title: topic.title,
+        type: resolveContentType(topic.optionId),
+        excerpt,
+        url: `/pages/topics/index.php?topic_id=${topic.topicId}`,
+        score: Math.min(topic.score / 10, 1.0),
+      };
+    });
+  }
+
+  let externalSources: SourceExcerpt[] = [];
+  let externalUsed = false;
+
+  try {
+    const externalMaxPerSource = Math.max(2, Math.floor(maxSources / 3));
+    const rawExternal = await retrieveFromExternalSources(query, {
+      maxPerSource: externalMaxPerSource,
+      maxTotal: maxSources,
+    });
+
+    externalSources = rawExternal.map((ext) => ({
+      sourceId: `ext-${ext.sourceDomain}-${encodeURIComponent(ext.url).slice(-20)}`,
+      title: ext.title || ext.sourceName,
+      type: "article" as SourceContentType,
+      excerpt: ext.content.length > 280
+        ? `${ext.content.substring(0, 280)}...`
+        : ext.content,
+      url: ext.url,
+      score: ext.relevanceScore,
+      ...(ext.sourceName ? { sourceLabel: ext.sourceName } : {}),
+    }));
+
+    externalUsed = externalSources.length > 0;
+  } catch (err) {
+    console.warn("[retrieval] External sources failed:", err);
+  }
+
+  const boostedLocal = localSources.map((s) => ({
+    ...s,
+    score: s.score * 1.2,
+  }));
+
+  const merged = [...boostedLocal, ...externalSources];
+  merged.sort((a, b) => b.score - a.score);
+
+  const finalSources = merged.slice(0, maxSources);
+
+  return {
+    sources: finalSources,
+    totalCandidates: totalCandidates + externalSources.length,
+    externalSourcesUsed: externalUsed,
+  };
 }

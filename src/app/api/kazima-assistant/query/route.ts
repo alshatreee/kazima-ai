@@ -53,6 +53,7 @@ function buildRetrievalSummaryAnswer(
   mode: AssistantResponseMode,
   sourceCount: number,
   aiFallback: boolean,
+  externalUsed?: boolean,
 ): string {
   if (sourceCount === 0) {
     return mode === "retrieve"
@@ -140,6 +141,7 @@ function buildRetrievalOnlyResponse(
       totalCandidates: retrieval.totalCandidates,
       returnedSources: sourceCount,
       sources: retrieval.sources,
+      externalSourcesUsed: retrieval.externalSourcesUsed ?? false,
     },
   };
 }
@@ -286,6 +288,7 @@ export async function POST(request: NextRequest) {
         totalCandidates: retrieval.totalCandidates,
         returnedSources: retrieval.sources.length,
         sources: retrieval.sources,
+        externalSourcesUsed: retrieval.externalSourcesUsed ?? false,
       },
     } as AssistantQueryResponse);
   } catch (error) {

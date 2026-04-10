@@ -42,7 +42,6 @@ function resolveContentType(optionId: number): SourceContentType {
 
 function normalizeTopicUrl(link: string): string | undefined {
   const normalized = link.trim();
-
   if (!normalized) return undefined;
   if (normalized.startsWith("http://") || normalized.startsWith("https://")) {
     return normalized;
@@ -50,8 +49,7 @@ function normalizeTopicUrl(link: string): string | undefined {
   if (normalized.startsWith("/")) {
     return normalized;
   }
-
-  return `/${normalized}`;
+  return "/" + normalized;
 }
 
 interface ScoredTopic {
@@ -78,8 +76,11 @@ export async function retrieveFromTopics(
 ): Promise<RetrievalResult> {
   const keywords = splitKeywords(query);
 
-  if (keywords.length ÏOH
-HÂ]\ÈÛÝ\Ù\Î×KÝ[Ø[Y]\ÎNÂBËÈ8¥ 8¥  1. Local DB retrieval ââââââââââââââââââââââââââââââââââââââââââââââââââ
+  if (keywords.length === 0) {
+    return { sources: [], totalCandidates: 0 };
+  }
+
+  // 1. Local DB retrieval
   let localSources: SourceExcerpt[] = [];
   let totalCandidates = 0;
 
@@ -129,7 +130,6 @@ HÂ]\ÈÛÝ\Ù\Î×KÝ[Ø[Y]\ÎNÂB
 
       for (const keyword of keywords) {
         const normalizedKeyword = keyword.toLowerCase();
-
         if (titleLower.includes(normalizedKeyword)) score += 3;
         if (shortPlain.includes(keyword)) score += 2;
         if (longPlain.includes(keyword)) score += 1;
@@ -150,20 +150,21 @@ HÂ]\ÈÛÝ\Ù\Î×KÝ[Ø[Y]\ÎNÂB
     localSources = topLocal.map((topic) => {
       const shortPlain = stripHtml(topic.contentShort || "");
       const excerpt = shortPlain.length > 280
-        ? `${shortPlain.substring(0, 280)}...`
+        ? shortPlain.substring(0, 280) + "..."
         : shortPlain;
 
       return {
-        sourceId: `topic-${topic.topicId}`,
+        sourceId: "topic-" + topic.topicId,
         title: topic.title,
         type: resolveContentType(topic.optionId),
         excerpt,
-        url: `https://kazima.org/pages/topics/index.php?topic_id=${topic.topicId}`,
+        url: "https://kazima.org/pages/topics/index.php?topic_id=" + topic.topicId,
         score: Math.min(topic.score / 10, 1.0),
       };
     });
   }
 
+  // 2. External sources retrieval (Kuwaiti repositories)
   let externalSources: SourceExcerpt[] = [];
   let externalUsed = false;
 
@@ -175,11 +176,11 @@ HÂ]\ÈÛÝ\Ù\Î×KÝ[Ø[Y]\ÎNÂB
     });
 
     externalSources = rawExternal.map((ext) => ({
-      sourceId: `ext-${ext.sourceDomain}-${encodeURIComponent(ext.url).slice(-20)}`,
+      sourceId: "ext-" + ext.sourceDomain + "-" + encodeURIComponent(ext.url).slice(-20),
       title: ext.title || ext.sourceName,
       type: "article" as SourceContentType,
       excerpt: ext.content.length > 280
-        ? `${ext.content.substring(0, 280)}...`
+        ? ext.content.substring(0, 280) + "..."
         : ext.content,
       url: ext.url,
       score: ext.relevanceScore,
@@ -191,6 +192,7 @@ HÂ]\ÈÛÝ\Ù\Î×KÝ[Ø[Y]\ÎNÂB
     console.warn("[retrieval] External sources failed:", err);
   }
 
+  // 3. Merge & rank
   const boostedLocal = localSources.map((s) => ({
     ...s,
     score: s.score * 1.2,

@@ -8,27 +8,27 @@ import {
     retrieveFromExternalSources,
 } from "./kazima-external-sources";
 
-// ── Arabic text normalization (mirrors mukhtasar's normalize function) ────────
+// ââ Arabic text normalization (mirrors mukhtasar's normalize function) ââââââââ
 // mukhtasar pip package: https://github.com/alshatreee/mukhtasar
 // Python preprocessing bridge: examples/kazima_integration.py in mukhtasar repo
 const ARABIC_DIACRITICS_RE = /[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06DC\u06DF-\u06E8\u06EA-\u06ED]/g;
 const ARABIC_TATWEEL_RE = /\u0640+/g;
-const ARABIC_ALEF_RE = /[إأآا]/g;
-const ARABIC_TEH_MARBUTA_RE = /ة/g;
-const ARABIC_YEH_RE = /[ىي]/g;
+const ARABIC_ALEF_RE = /[Ø¥Ø£Ø¢Ø§]/g;
+const ARABIC_TEH_MARBUTA_RE = /Ø©/g;
+const ARABIC_YEH_RE = /[ÙÙ]/g;
 
 /**
  * Normalize Arabic text before passing to keyword search or embedding.
- * Strips diacritics and unifies alef / teh-marbuta / yeh variants —
+ * Strips diacritics and unifies alef / teh-marbuta / yeh variants â
  * mirrors mukhtasar.normalize() from the mukhtasar Python library.
  */
 function normalizeArabic(text: string): string {
     return text
       .replace(ARABIC_DIACRITICS_RE, "")
       .replace(ARABIC_TATWEEL_RE, "")
-      .replace(ARABIC_ALEF_RE, "ا")
-      .replace(ARABIC_TEH_MARBUTA_RE, "ه")
-      .replace(ARABIC_YEH_RE, "ي");
+      .replace(ARABIC_ALEF_RE, "Ø§")
+      .replace(ARABIC_TEH_MARBUTA_RE, "Ù")
+      .replace(ARABIC_YEH_RE, "Ù");
 }
 
 const HTML_TAG_RE = /<[^>]*>/g;
@@ -45,7 +45,7 @@ function stripHtml(html: string): string {
 }
 
 function splitKeywords(query: string): string[] {
-    // Normalize Arabic before splitting — same as mukhtasar.normalize()
+    // Normalize Arabic before splitting â same as mukhtasar.normalize()
   return normalizeArabic(query)
       .replace(NON_WORD_RE, " ")
       .split(/\s+/)
@@ -182,9 +182,7 @@ export async function retrieveFromTopics(
                                                   title: topic.title,
                                                   type: resolveContentType(topic.optionId),
                                                   excerpt,
-                                                  url:
-                                                              "https://kazima.org/pages/topics/index.php?topic_id=" +
-                                                              topic.topicId,
+                                                  url: (() => { const n = normalizeTopicUrl(topic.link); if (!n) return "https://www.kazima.org/pages/articles.php"; if (n.startsWith("http")) return n; if (n.includes("/pages/topics/")) return "https://www.kazima.org" + n; const slug = n.startsWith("/") ? n.slice(1) : n; return "https://www.kazima.org/pages/topics/" + slug + (slug.endsWith(".php") ? "" : ".php"); })(),
                                                   score: Math.min(topic.score / 10, 1.0),
                                         };
       });

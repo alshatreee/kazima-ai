@@ -158,7 +158,7 @@ export async function retrieveFromTopics(
         title: topic.title,
         type: resolveContentType(topic.optionId),
         excerpt,
-        url: (() => { const n = normalizeTopicUrl(topic.link); if (!n) return "https://www.kazima.org/pages/articles.php"; return n.startsWith("http") ? n : "https://www.kazima.org" + n; })(),
+        url: (() => { const n = normalizeTopicUrl(topic.link); if (!n) return "https://www.kazima.org/pages/articles.php"; if (n.startsWith("http")) return n; if (n.includes("/pages/topics/")) return "https://www.kazima.org" + n; const slug = n.startsWith("/") ? n.slice(1) : n; return "https://www.kazima.org/pages/topics/" + slug + (slug.endsWith(".php") ? "" : ".php"); })(),
         score: Math.min(topic.score / 10, 1.0),
       };
     });

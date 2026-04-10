@@ -9,127 +9,77 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!text.trim()) return;
-
+  async function submitQuery(queryText: string, mode: string) {
+    if (!queryText.trim()) return;
     setLoading(true);
     setError("");
     setResult(null);
-
     try {
       const response = await fetch("/api/kazima-assistant/query", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          query: text,
-          mode: "retrieve",
-          includeReadMore: true,
-          maxSources: 5,
-        }),
+        body: JSON.stringify({ query: queryText.trim(), mode, includeReadMore: true, maxSources: 5 }),
       });
-
       const data = await response.json();
-
-      if (!response.ok) {
-        setError(data.error || "حدث خطأ غير متوقع أثناء المعالجة.");
-        return;
-      }
-
+      if (!response.ok) { setError(data.error || "حدث خطأ غير متوقع أثناء المعالجة."); return; }
       setResult(data as AssistantQueryResponse);
-    } catch {
-      setError("تعذر الاتصال بالخادم في الوقت الحالي.");
-    } finally {
-      setLoading(false);
+    } catch { setError("تعذر الاتصال بالخادم في الوقت الحالي."); }
+    finally { setLoading(false); }
+  }
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    await submitQuery(text, "retrieve");
+  }
+
+  function handleFollowUp(question: string) {
+    if (question.includes("تلخيص")) {
+      submitQuery(text, "brief");
+    } else if (question.includes("بحثية موثقة")) {
+      submitQuery(text, "research");
+    } else {
+      setText(question);
     }
   }
 
   return (
     <div className="search-page" dir="rtl">
-      {/* Header */}
       <header className="search-header">
         <div className="search-header-inner">
           <h1 className="search-logo">كاظمة</h1>
           <span className="search-subtitle">أرشيف التراث الكويتي والخليجي</span>
         </div>
       </header>
-
-      {/* Search Bar */}
       <div className="search-bar-wrapper">
         <form onSubmit={handleSubmit} className="search-form">
           <div className="search-bar">
-            <input
-              type="text"
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              placeholder="ابحث في كاظمة..."
-              className="search-input"
-              dir="rtl"
-            />
-            <button
-              type="submit"
-              disabled={loading || !text.trim()}
-              className="search-btn"
-              aria-label="بحث"
-            >
-              {loading ? (
-                <span className="search-spinner" />
-              ) : (
+            <input type="text" value={text} onChange={(e) => setText(e.target.value)} placeholder="ابحث في كاظمة..." className="search-input" dir="rtl" />
+            <button type="submit" disabled={loading || !text.trim()} className="search-btn" aria-label="بحث">
+              {loading ? (<span className="search-spinner" />) : (
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="11" cy="11" r="8" />
-                  <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                  <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
                 </svg>
               )}
             </button>
           </div>
         </form>
       </div>
-
-      {/* Results */}
       <main className="search-results-area">
-        {error && (
-          <div className="search-error">
-            {error}
-          </div>
-        )}
-
-        {loading && (
-          <div className="search-loading">
-            <div className="search-loading-dot" />
-            <div className="search-loading-dot" />
-            <div className="search-loading-dot" />
-          </div>
-        )}
-
+        {error && (<div className="search-error">{error}</div>)}
+        {loading && (<div className="search-loading"><div className="search-loading-dot" /><div className="search-loading-dot" /><div className="search-loading-dot" /></div>)}
         {result && (
           <div className="search-results">
-            {/* Summary */}
-            {result.summary && (
-              <div className="result-summary">
-                <p>{result.summary}</p>
-              </div>
-            )}
-
-            {/* Answer */}
-            {result.answer && (
-              <div className="result-answer">
-                <p>{result.answer}</p>
-              </div>
-            )}
-
-            {/* Sections */}
+            {result.summary && (<div className="result-summary"><p>{result.summary}</p></div>)}
+            {result.answer && (<div className="result-answer"><p>{result.answer}</p></div>)}
             {result.sections.length > 0 && (
               <div className="result-sections">
                 {result.sections.map((section) => (
                   <div key={`${section.title}-${section.body.slice(0, 20)}`} className="result-section-item">
-                    <h3>{section.title}</h3>
-                    <p>{section.body}</p>
+                    <h3>{section.title}</h3><p>{section.body}</p>
                   </div>
                 ))}
               </div>
             )}
-
-            {/* Citations */}
             {result.citations.length > 0 && (
               <div className="result-citations">
                 <h3 className="citations-title">المصادر</h3>
@@ -137,61 +87,30 @@ export default function Home() {
                   <div key={citation.id} className="citation-card">
                     <div className="citation-label">{citation.label}</div>
                     <p className="citation-excerpt">{citation.excerpt}</p>
-                    {citation.url && (
-                      <a
-                        href={citation.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="citation-link"
-                      >
-                        اقرأ المصدر
-                      </a>
-                    )}
+                    {citation.url && (<a href={citation.url} target="_blank" rel="noopener noreferrer" className="citation-link">اقرأ المصدر</a>)}
                   </div>
                 ))}
               </div>
             )}
-
-            {/* Read More */}
             {result.readMore.length > 0 && (
               <div className="result-readmore">
                 <h3 className="citations-title">اقرأ المزيد</h3>
                 <div className="readmore-links">
                   {result.readMore.map((item) => (
-                    <a
-                      key={item.url}
-                      href={item.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="readmore-link"
-                    >
-                      {item.title}
-                    </a>
+                    <a key={item.url} href={item.url} target="_blank" rel="noopener noreferrer" className="readmore-link">{item.title}</a>
                   ))}
                 </div>
               </div>
             )}
-
-            {/* Follow-up */}
             {result.followUpQuestions.length > 0 && (
               <div className="result-followup">
                 {result.followUpQuestions.map((question, index) => (
-                  <button
-                    key={index}
-                    type="button"
-                    onClick={() => {
-                      setText(question);
-                    }}
-                    className="followup-btn"
-                  >
-                    {question}
-                  </button>
+                  <button key={index} type="button" onClick={() => handleFollowUp(question)} className="followup-btn">{question}</button>
                 ))}
               </div>
             )}
           </div>
         )}
-
         {!loading && !result && !error && (
           <div className="search-empty">
             <p>ابحث عن أي شيء في أرشيف كاظمة</p>
@@ -203,11 +122,7 @@ export default function Home() {
           </div>
         )}
       </main>
-
-      {/* Footer */}
-      <footer className="search-footer">
-        <p>منصة كاظمة البحثية &copy; 2025</p>
-      </footer>
+      <footer className="search-footer"><p>منصة كاظمة البحثية &copy; 2025</p></footer>
     </div>
   );
 }

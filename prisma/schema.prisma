@@ -1,120 +1,184 @@
 generator client {
   provider = "prisma-client"
-  output   = "../src/generated/prisma"
 }
 
 datasource db {
-  provider = "mysql"
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
 }
 
-// Articles/Topics - main content table from wb_mod_topics
-model Topic {
-  topicId          Int      @id @map("topic_id")
-  sectionId        Int      @map("section_id")
-  pageId           Int      @map("page_id")
-  active           Int      @default(4)
-  hascontent       Int      @default(2)
-  publishedWhen    Int      @map("published_when")
-  publishedUntil   Int      @map("published_until")
-  postedFirst      Int      @map("posted_first")
-  postedModified   Int      @map("posted_modified")
-  postedBy         Int      @map("posted_by")
-  modifiedBy       Int      @map("modified_by")
-  authors          String   @default(",1,")
-  position         Int      @default(22)
-  link             String   @db.VarChar(255)
-  title            String   @db.VarChar(255)
-  keywords         String   @db.VarChar(255)
-  picture          String   @db.VarChar(255)
-  contentShort     String   @map("content_short") @db.Text
-  contentLong      String   @map("content_long") @db.LongText
-  commenting       Int      @default(-1)
-  ratingVal        Int      @default(0) @map("rating_val")
-  topicScore       Int      @default(0) @map("topic_score")
-  commentsCount    Int      @default(0) @map("comments_count")
-  views            Int      @default(0)
-  optionId         Int      @default(1) @map("option_id")
-  attributeId      Int      @default(1) @map("attribute_id")
-  author           String   @default("") @db.VarChar(255)
-  shortDescription String   @default("") @map("short_description") @db.Text
-  description      String   @default("") @db.Text
-  contentExtra     String   @default("") @map("content_extra") @db.Text
-  tagcloud         String   @default("") @db.Text
-  ratingBase       String   @default("") @map("rating_base") @db.VarChar(255)
-  pnsaCache        String   @default("") @map("pnsa_cache") @db.Text
+model SourceDocument {
+  id                Int               @id @default(autoincrement())
+  legacyTopicId     Int?              @map("legacy_topic_id")
+  legacyPageId      Int?              @map("legacy_page_id")
+  slug              String            @unique
+  title             String
+  summary           String?
+  body              String?
+  type              String
+  verificationState String            @default("unreviewed")
+  language          String            @default("ar")
+  authorName        String?           @map("author_name")
+  sourceUrl         String?           @map("source_url")
+  searchableText    String            @map("searchable_text")
+  publishedAt       DateTime?         @map("published_at")
+  createdAt         DateTime          @default(now()) @map("created_at")
+  updatedAt         DateTime          @updatedAt @map("updated_at")
+  chunks            SourceChunk[]
+  metadata          SourceMetadata[]
+  citationLogs      CitationLog[]
+  manuscriptAsset   ManuscriptAsset?
 
-  @@map("wb_mod_topics")
+  @@index([legacyTopicId])
+  @@index([legacyPageId])
+  @@map("kazima_source_documents")
 }
 
-// Categories/Attributes
-model Attribute {
-  attributeId   Int     @id @map("attribute_id")
-  optionId      Int     @map("option_id")
-  attributeName String  @map("attribute_name") @db.VarChar(50)
-  icon          String? @db.VarChar(255)
-  position      Int?
+model SourceChunk {
+  id             Int            @id @default(autoincrement())
+  documentId     Int            @map("document_id")
+  ordinal        Int
+  sectionTitle   String?        @map("section_title")
+  pageNumber     Int?           @map("page_number")
+  text           String
+  cleanText      String         @map("clean_text")
+  tokenCount     Int?           @map("token_count")
+  embeddingModel String?        @map("embedding_model")
+  embeddingRef   String?        @map("embedding_ref")
+  scoreBoost     Float          @default(1) @map("score_boost")
+  retrievalTags  String?        @map("retrieval_tags")
+  createdAt      DateTime       @default(now()) @map("created_at")
+  document       SourceDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  citationLogs   CitationLog[]
 
-  @@map("wb_mod_bakery_attributes")
+  @@unique([documentId, ordinal])
+  @@index([documentId])
+  @@map("kazima_source_chunks")
 }
 
-// Options (المقالات، كتب ومخطوطات، كتاب الموقع)
-model Option {
-  optionId   Int     @id @map("option_id")
-  optionName String  @map("option_name") @db.VarChar(50)
-  icon       String? @db.VarChar(255)
-  position   Int?
+model SourceMetadata {
+  id         Int            @id @default(autoincrement())
+  documentId Int            @map("document_id")
+  key        String
+  value      String
+  document   SourceDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
 
-  @@map("wb_mod_bakery_options")
+  @@index([documentId, key])
+  @@map("kazima_source_metadata")
 }
 
-// Pages
-model Page {
-  pageId       Int    @id @map("page_id")
-  parentId     Int    @default(0) @map("parent")
-  root         Int    @default(0) @map("root_parent")
-  level        Int    @default(0)
-  link         String @default("") @db.VarChar(255)
-  target       String @default("_top") @db.VarChar(7)
-  pageTitle    String @default("") @map("page_title") @db.VarChar(255)
-  menuTitle    String @default("") @map("menu_title") @db.VarChar(255)
-  description  String @default("") @db.VarChar(255)
-  keywords     String @default("") @db.VarChar(255)
-  pageTrail    String @default("") @map("page_trail") @db.VarChar(255)
-  template     String @default("") @db.VarChar(255)
-  visibility   String @default("public") @db.VarChar(25)
-  position     Int    @default(0)
-  menu         Int    @default(0)
-  language     String @default("") @db.VarChar(5)
-  searching    Int    @default(0)
-  modified_when Int   @default(0)
-  modified_by   Int   @default(0)
+model QueryLog {
+  id              Int             @id @default(autoincrement())
+  query           String
+  normalizedQuery String?         @map("normalized_query")
+  mode            String
+  scope           String
+  confidence      String
+  answerText      String          @map("answer_text")
+  summary         String?
+  retrievalCount  Int             @default(0) @map("retrieval_count")
+  responseMs      Int?            @map("response_ms")
+  createdAt       DateTime        @default(now()) @map("created_at")
+  citationLogs    CitationLog[]
 
-  @@map("wb_pages")
+  @@map("kazima_query_logs")
 }
 
-// AI Interactions log
-model AiInteraction {
-  id        Int      @id @default(autoincrement())
-  mode      String   @db.VarChar(50)
-  input     String   @db.LongText
-  output    String   @db.LongText
-  metadata  String?  @db.Text
-  createdAt DateTime @default(now()) @map("created_at")
+model CitationLog {
+  id         Int             @id @default(autoincrement())
+  queryLogId Int             @map("query_log_id")
+  documentId Int             @map("document_id")
+  chunkId    Int?            @map("chunk_id")
+  label      String
+  excerpt    String
+  confidence String
+  createdAt  DateTime        @default(now()) @map("created_at")
+  queryLog   QueryLog        @relation(fields: [queryLogId], references: [id], onDelete: Cascade)
+  document   SourceDocument  @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  chunk      SourceChunk?    @relation(fields: [chunkId], references: [id], onDelete: SetNull)
 
-  @@map("kazima_ai_interactions")
+  @@index([queryLogId])
+  @@index([documentId])
+  @@map("kazima_citation_logs")
 }
 
-// Extracted entities from AI processing
-model ExtractedEntity {
-  id            Int      @id @default(autoincrement())
-  topicId       Int?     @map("topic_id")
-  entityType    String   @map("entity_type") @db.VarChar(50)
-  entityValue   String   @map("entity_value") @db.VarChar(500)
-  confidence    Float    @default(0)
-  sourceText    String?  @map("source_text") @db.Text
-  createdAt     DateTime @default(now()) @map("created_at")
+model ManuscriptAsset {
+  id          Int             @id @default(autoincrement())
+  documentId  Int             @unique @map("document_id")
+  storagePath String          @map("storage_path")
+  mimeType    String          @map("mime_type")
+  pageCount   Int?            @map("page_count")
+  ocrStatus   String          @default("pending") @map("ocr_status")
+  ocrEngine   String?         @map("ocr_engine")
+  createdAt   DateTime        @default(now()) @map("created_at")
+  updatedAt   DateTime        @updatedAt @map("updated_at")
+  document    SourceDocument  @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  pages       ManuscriptPage[]
 
-  @@index([entityType])
-  @@index([topicId])
-  @@map("kazima_extracted_entities")
+  @@map("kazima_manuscript_assets")
+}
+
+model ManuscriptPage {
+  id           Int             @id @default(autoincrement())
+  assetId      Int             @map("asset_id")
+  pageNumber   Int             @map("page_number")
+  imagePath    String?         @map("image_path")
+  ocrText      String?         @map("ocr_text")
+  reviewedText String?         @map("reviewed_text")
+  confidence   Float?          @default(0)
+  asset        ManuscriptAsset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@unique([assetId, pageNumber])
+  @@map("kazima_manuscript_pages")
+}
+
+model SanadNode {
+  id            Int         @id @default(autoincrement())
+  canonicalName String      @map("canonical_name")
+  displayName   String      @map("display_name")
+  scholarId     Int?        @map("scholar_id")
+  createdAt     DateTime    @default(now()) @map("created_at")
+  outgoingEdges SanadEdge[] @relation("SanadEdgeFrom")
+  incomingEdges SanadEdge[] @relation("SanadEdgeTo")
+
+  @@index([canonicalName])
+  @@map("kazima_sanad_nodes")
+}
+
+model SanadEdge {
+  id         Int       @id @default(autoincrement())
+  fromNodeId Int       @map("from_node_id")
+  toNodeId   Int       @map("to_node_id")
+  sourceText String?   @map("source_text")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  fromNode   SanadNode @relation("SanadEdgeFrom", fields: [fromNodeId], references: [id], onDelete: Cascade)
+  toNode     SanadNode @relation("SanadEdgeTo", fields: [toNodeId], references: [id], onDelete: Cascade)
+
+  @@index([fromNodeId])
+  @@index([toNodeId])
+  @@map("kazima_sanad_edges")
+}
+
+model ResearchWorkspace {
+  id          Int                     @id @default(autoincrement())
+  title       String
+  description String?
+  createdAt   DateTime                @default(now()) @map("created_at")
+  updatedAt   DateTime                @updatedAt @map("updated_at")
+  items       ResearchWorkspaceItem[]
+
+  @@map("kazima_research_workspaces")
+}
+
+model ResearchWorkspaceItem {
+  id          Int               @id @default(autoincrement())
+  workspaceId Int               @map("workspace_id")
+  itemType    String            @map("item_type")
+  label       String
+  payload     String
+  createdAt   DateTime          @default(now()) @map("created_at")
+  workspace   ResearchWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@map("kazima_research_workspace_items")
 }

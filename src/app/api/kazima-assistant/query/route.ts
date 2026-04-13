@@ -15,12 +15,53 @@ import {
   validateAssistantQuery,
 } from "@/lib/kazima-assistant-contract";
 import { retrieveFromTopics } from "@/lib/kazima-retrieval";
+import { prisma } from "@/lib/prisma";
 import {
   buildScholarUserPrompt,
   KAZIMA_SCHOLAR_SYSTEM_PROMPT,
 } from "@/lib/kazima-scholar-prompts";
 
 const AI_MODEL = "claude-sonnet-4-20250514";
+
+interface LocationPoint {
+  name: string;
+  type: string;
+  lat: number;
+  lng: number;
+  context?: string;
+}
+
+async function getLocationsForSources(
+  sourceIds: string[],
+): Promise<LocationPoint[]> {
+  if (!prisma || sourceIds.length === 0) return [];
+
+  try {
+    const docIds = sourceIds
+      .filter((id) => id.startsWith("doc-"))
+      .map((id) => parseInt(id.replace("doc-", ""), 10))
+      .filter((id) => !isNaN(id));
+
+    if (docIds.length === 0) return [];
+
+    const metadata = await prisma.sourceMetadata.findMany({
+      where: {
+        documentId: { in: docIds },
+        key: { startsWith: "location:" },
+      },
+    });
+
+    return metadata.map((m) => {
+      try {
+        return JSON.parse(m.value) as LocationPoint;
+      } catch {
+        return null;
+      }
+    }).filter((loc): loc is LocationPoint => loc !== null);
+  } catch {
+    return [];
+  }
+}
 
 function toDefaultCitations(
   sources: AssistantQueryResponse["retrieval"]["sources"],
@@ -216,19 +257,21 @@ export async function POST(request: NextRequest) {
 
     const retrieval = await retrieveFromTopics(query, maxSources);
 
+    // استخراج المواقع الجغرافية المرتبطة بالنتائج
+    const sourceIds = retrieval.sources.map((s) => s.sourceId);
+    const locations = await getLocationsForSources(sourceIds);
+
     if (mode === "retrieve") {
-      return NextResponse.json(
-        buildRetrievalOnlyResponse(validation.data, mode, retrieval),
-      );
+      const response = buildRetrievalOnlyResponse(validation.data, mode, retrieval);
+      return NextResponse.json({ ...response, locations });
     }
 
     const hasApiKey = Boolean(process.env.ANTHROPIC_API_KEY);
     if (!hasApiKey || retrieval.sources.length === 0) {
-      return NextResponse.json(
-        buildRetrievalOnlyResponse(validation.data, mode, retrieval, {
-          preserveRequestedMode: true,
-        }),
-      );
+      const response = buildRetrievalOnlyResponse(validation.data, mode, retrieval, {
+        preserveRequestedMode: true,
+      });
+      return NextResponse.json({ ...response, locations });
     }
 
     const client = new Anthropic();
@@ -284,13 +327,14 @@ export async function POST(request: NextRequest) {
         "هل تريد تعميق هذا التحليل؟",
         "هل تريد استكشاف جوانب أخرى من الموضوع؟",
       ],
+      locations,
       retrieval: {
         totalCandidates: retrieval.totalCandidates,
         returnedSources: retrieval.sources.length,
         sources: retrieval.sources,
         externalSourcesUsed: retrieval.externalSourcesUsed ?? false,
       },
-    } as AssistantQueryResponse);
+    } as AssistantQueryResponse & { locations: LocationPoint[] });
   } catch (error) {
     console.error("API error:", error);
     return NextResponse.json(

@@ -36,6 +36,10 @@ yarn-error.log*
 # data archive (large text files for import)
 /data/archive/
 
+# SQLite database
+*.db
+*.db-journal
+
 # vercel
 .vercel
 

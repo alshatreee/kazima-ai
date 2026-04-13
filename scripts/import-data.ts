@@ -1,8 +1,12 @@
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient } from '../src/generated/prisma/client';
+import { PrismaBetterSqlite3 } from '@prisma/adapter-better-sqlite3';
 import fs from 'fs';
 import path from 'path';
 
-const prisma = new PrismaClient();
+const adapter = new PrismaBetterSqlite3({
+  url: process.env.DATABASE_URL ?? 'file:./dev.db',
+});
+const prisma = new PrismaClient({ adapter });
 
 // إعدادات التقطيع
 const MAX_CHUNK_LENGTH = 1200; // أقصى عدد حروف للمقطع الواحد للحفاظ على سياق Gemini

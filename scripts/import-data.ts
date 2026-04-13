@@ -246,8 +246,17 @@ async function main() {
   let successCount = 0;
   let failCount = 0;
   let skipCount = 0;
+  let duplicateCount = 0;
   let totalChunks = 0;
   let imageCount = 0;
+
+  // تحميل العناوين الموجودة مسبقاً لتجنب التكرار
+  const existingDocs = await prisma.sourceDocument.findMany({
+    select: { title: true },
+  });
+  const existingTitles = new Set(existingDocs.map((d) => d.title));
+  console.log(`📋 وثائق موجودة مسبقاً في القاعدة: ${existingTitles.size}`);
+  console.log('');
 
   for (let i = 0; i < allFiles.length; i++) {
     const { name: fileName, fullPath: filePath } = allFiles[i];
@@ -259,6 +268,13 @@ async function main() {
     try {
       const label = isImageFile ? '🖼️' : '📄';
       console.log(`[${i + 1}/${allFiles.length}] ${label} ⏳ ${title} (${ext})`);
+
+      // حماية من التكرار: تخطي إذا العنوان موجود مسبقاً
+      if (existingTitles.has(title)) {
+        console.log(`  ⏭️ تخطي — موجود مسبقاً في القاعدة`);
+        duplicateCount++;
+        continue;
+      }
 
       // 1. استخراج المحتوى
       const { text: content, isImage } = await readFileContent(filePath);
@@ -303,6 +319,7 @@ async function main() {
       totalChunks += textChunks.length;
       successCount++;
       if (isImage) imageCount++;
+      existingTitles.add(title); // تسجيل العنوان لتجنب التكرار في نفس الجلسة
 
       const method = isImage ? 'Gemini Vision' : ext;
       console.log(`  ✅ نوع: ${docType} | ${textChunks.length} مقطع | ${content.length} حرف | ${method}`);
@@ -316,7 +333,8 @@ async function main() {
   console.log('═══════════════════════════════════════');
   console.log(`🎉 انتهت عملية الاستيراد!`);
   console.log(`   ✅ نجح: ${successCount} ملف (${imageCount} صورة عبر Vision)`);
-  console.log(`   ⚠️ تخطي: ${skipCount} ملف`);
+  console.log(`   ⏭️ مكرر: ${duplicateCount} ملف (تم تخطيها)`);
+  console.log(`   ⚠️ تخطي: ${skipCount} ملف (محتوى فارغ)`);
   console.log(`   ❌ فشل: ${failCount} ملف`);
   console.log(`   📄 إجمالي المقاطع: ${totalChunks}`);
   console.log('═══════════════════════════════════════');

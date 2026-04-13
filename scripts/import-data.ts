@@ -3,7 +3,9 @@ import { PrismaBetterSqlite3 } from '@prisma/adapter-better-sqlite3';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import fs from 'fs';
 import path from 'path';
+// @ts-expect-error -- pdf-parse has no default export type
 import pdfParse from 'pdf-parse';
+// @ts-expect-error -- mammoth types mismatch
 import mammoth from 'mammoth';
 import 'dotenv/config';
 

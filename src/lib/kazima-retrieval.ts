@@ -44,12 +44,22 @@ function stripHtml(html: string): string {
       .trim();
 }
 
-function splitKeywords(query: string): string[] {
-    return normalizeArabic(query)
+function splitRawKeywords(query: string): string[] {
+    return query
+      .replace(ARABIC_DIACRITICS_RE, "")
+      .replace(ARABIC_TATWEEL_RE, "")
       .replace(NON_WORD_RE, " ")
       .split(/\s+/)
       .map((word) => word.trim())
       .filter((word) => word.length >= 2);
+}
+
+function splitKeywords(query: string): string[] {
+    // Return both original and normalized keywords for broader matching
+    const raw = splitRawKeywords(query);
+    const normalized = raw.map(normalizeArabic);
+    const combined = new Set([...raw, ...normalized]);
+    return [...combined];
 }
 
 export interface RetrievalResult {

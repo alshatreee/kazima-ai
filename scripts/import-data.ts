@@ -1,22 +1,43 @@
 import { PrismaClient } from '../src/generated/prisma/client';
 import { PrismaBetterSqlite3 } from '@prisma/adapter-better-sqlite3';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 import fs from 'fs';
 import path from 'path';
 import pdfParse from 'pdf-parse';
 import mammoth from 'mammoth';
+import 'dotenv/config';
 
 const adapter = new PrismaBetterSqlite3({
   url: process.env.DATABASE_URL ?? 'file:./dev.db',
 });
 const prisma = new PrismaClient({ adapter });
 
-// الصيغ المدعومة
-const SUPPORTED_EXTENSIONS = ['.pdf', '.txt', '.docx', '.doc', '.html', '.htm'];
+// Gemini Vision للصور
+const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY!);
+const visionModel = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
 
-// إعدادات التقطيع
+// ═══ الصيغ المدعومة ═══
+
+const TEXT_EXTENSIONS = ['.pdf', '.txt', '.docx', '.doc', '.html', '.htm', '.md'];
+
+const IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp', '.tiff', '.tif', '.jfif'];
+
+const IMAGE_MIME_TYPES: Record<string, string> = {
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.jfif': 'image/jpeg',
+  '.png': 'image/png',
+  '.webp': 'image/webp',
+  '.tiff': 'image/tiff',
+  '.tif': 'image/tiff',
+};
+
+const ALL_EXTENSIONS = [...TEXT_EXTENSIONS, ...IMAGE_EXTENSIONS];
+
+// ═══ إعدادات التقطيع ═══
+
 const MAX_CHUNK_LENGTH = 1200;
 
-// دالة لتقطيع النص الأكاديمي بشكل ذكي يحافظ على الفقرات
 function chunkText(text: string): string[] {
   const paragraphs = text.split(/\n\s*\n/);
   const chunks: string[] = [];
@@ -41,7 +62,8 @@ function chunkText(text: string): string[] {
   return chunks;
 }
 
-// تنظيف HTML من الوسوم
+// ═══ تنظيف HTML ═══
+
 function stripHtml(html: string): string {
   return html
     .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
@@ -57,39 +79,92 @@ function stripHtml(html: string): string {
     .trim();
 }
 
-// قراءة محتوى ملف بحسب نوعه
-async function readFileContent(filePath: string): Promise<string> {
+// ═══ استخراج النص من الصور عبر Gemini Vision ═══
+
+const VISION_PROMPT = `أنت محلل وثائق ومخطوطات عربية خبير. حلّل هذه الصورة واستخرج المعلومات التالية:
+
+1. **الوصف:** صف محتوى الصورة بالتفصيل (ما الذي تظهره؟ وثيقة تاريخية؟ صورة لمكان؟ مخطوطة؟ شخصية؟).
+2. **النص المكتوب:** إذا وُجد نص عربي أو أي نص آخر في الصورة، استخرجه كاملاً بالترتيب.
+3. **السياق التاريخي:** إذا كانت الصورة تتعلق بالتراث الكويتي أو الخليجي، اذكر أي معلومات واضحة (تاريخ، مكان، أشخاص).
+4. **الكلمات المفتاحية:** 5-10 كلمات مفتاحية بالعربية تصف المحتوى.
+
+أجب بالعربية فقط. لا تختلق معلومات غير موجودة في الصورة.`;
+
+async function extractFromImage(filePath: string, mimeType: string): Promise<string> {
+  const imageData = fs.readFileSync(filePath);
+  const base64 = imageData.toString('base64');
+
+  const result = await visionModel.generateContent([
+    VISION_PROMPT,
+    {
+      inlineData: {
+        data: base64,
+        mimeType,
+      },
+    },
+  ]);
+
+  return result.response.text();
+}
+
+// ═══ قراءة محتوى ملف بحسب نوعه ═══
+
+async function readFileContent(filePath: string): Promise<{ text: string; isImage: boolean }> {
   const ext = path.extname(filePath).toLowerCase();
 
+  // صور → Gemini Vision
+  if (IMAGE_EXTENSIONS.includes(ext)) {
+    const mimeType = IMAGE_MIME_TYPES[ext];
+    if (!mimeType) return { text: '', isImage: true };
+
+    if (!process.env.GOOGLE_API_KEY) {
+      console.log(`    ⚠️ تخطي الصورة — مفتاح GOOGLE_API_KEY غير موجود`);
+      return { text: '', isImage: true };
+    }
+
+    const text = await extractFromImage(filePath, mimeType);
+    return { text, isImage: true };
+  }
+
+  // ملفات نصية
   switch (ext) {
     case '.pdf': {
       const buffer = fs.readFileSync(filePath);
       const data = await pdfParse(buffer);
-      return data.text;
+      return { text: data.text, isImage: false };
     }
 
     case '.docx':
     case '.doc': {
       const result = await mammoth.extractRawText({ path: filePath });
-      return result.value;
+      return { text: result.value, isImage: false };
     }
 
     case '.html':
     case '.htm': {
       const html = fs.readFileSync(filePath, 'utf-8');
-      return stripHtml(html);
+      return { text: stripHtml(html), isImage: false };
     }
 
+    case '.md':
     case '.txt':
     default: {
-      return fs.readFileSync(filePath, 'utf-8');
+      return { text: fs.readFileSync(filePath, 'utf-8'), isImage: false };
     }
   }
 }
 
-// تحديد نوع الوثيقة من اسم الملف أو حجم المحتوى
-function detectDocumentType(fileName: string, contentLength: number): string {
+// ═══ تحديد نوع الوثيقة ═══
+
+function detectDocumentType(fileName: string, contentLength: number, isImage: boolean): string {
   const nameLower = fileName.toLowerCase();
+
+  if (isImage) {
+    if (nameLower.includes('مخطوط') || nameLower.includes('manuscript')) return 'manuscript';
+    if (nameLower.includes('خريطة') || nameLower.includes('map')) return 'article';
+    return 'article'; // صورة عامة
+  }
+
   if (nameLower.includes('كتاب') || nameLower.includes('مخطوط') || contentLength > 50000) {
     return 'book';
   }
@@ -99,67 +174,103 @@ function detectDocumentType(fileName: string, contentLength: number): string {
   return 'article';
 }
 
-// الدالة الرئيسية
+// ═══ الدالة الرئيسية ═══
+
 async function main() {
   console.log('🚀 بدء عملية استيراد الأرشيف إلى كاظمة...');
-  console.log(`   الصيغ المدعومة: ${SUPPORTED_EXTENSIONS.join(' | ')}`);
+  console.log(`   صيغ النصوص: ${TEXT_EXTENSIONS.join(' | ')}`);
+  console.log(`   صيغ الصور:  ${IMAGE_EXTENSIONS.join(' | ')} (عبر Gemini Vision)`);
   console.log('');
 
-  const dataDirectory = path.join(process.cwd(), 'data', 'archive');
+  const dataDirectory = process.argv[2]
+    ? path.resolve(process.argv[2])
+    : path.join(process.cwd(), 'data', 'archive');
 
   if (!fs.existsSync(dataDirectory)) {
     console.error(`❌ المجلد غير موجود: ${dataDirectory}`);
-    console.log('يرجى إنشاء مجلد data/archive داخل المشروع ووضع ملفاتك فيه.');
+    console.log('يرجى إنشاء مجلد data/archive أو تمرير المسار كمعامل.');
     return;
   }
 
-  const files = fs.readdirSync(dataDirectory).filter(f => {
-    const ext = path.extname(f).toLowerCase();
-    return SUPPORTED_EXTENSIONS.includes(ext);
-  });
+  // مسح متكرر للمجلدات الفرعية
+  const allFiles: { name: string; fullPath: string }[] = [];
 
-  if (files.length === 0) {
+  function scanDirectory(dir: string) {
+    const entries = fs.readdirSync(dir);
+    for (const entry of entries) {
+      const fullPath = path.join(dir, entry);
+      const stat = fs.statSync(fullPath);
+      if (stat.isDirectory()) {
+        scanDirectory(fullPath);
+      } else {
+        const ext = path.extname(entry).toLowerCase();
+        if (ALL_EXTENSIONS.includes(ext)) {
+          allFiles.push({ name: entry, fullPath });
+        }
+      }
+    }
+  }
+
+  scanDirectory(dataDirectory);
+
+  if (allFiles.length === 0) {
     console.log('⚠️ لم يتم العثور على ملفات مدعومة في المجلد.');
     return;
   }
 
   // إحصائيات الصيغ
   const extCounts: Record<string, number> = {};
-  for (const f of files) {
-    const ext = path.extname(f).toLowerCase();
+  let textFileCount = 0;
+  let imageFileCount = 0;
+
+  for (const f of allFiles) {
+    const ext = path.extname(f.name).toLowerCase();
     extCounts[ext] = (extCounts[ext] || 0) + 1;
+    if (IMAGE_EXTENSIONS.includes(ext)) imageFileCount++;
+    else textFileCount++;
   }
-  console.log(`📚 تم العثور على ${files.length} ملف:`);
-  for (const [ext, count] of Object.entries(extCounts)) {
-    console.log(`   ${ext}: ${count} ملف`);
+
+  console.log(`📚 تم العثور على ${allFiles.length} ملف (${textFileCount} نصي + ${imageFileCount} صورة):`);
+  for (const [ext, count] of Object.entries(extCounts).sort((a, b) => b[1] - a[1])) {
+    const label = IMAGE_EXTENSIONS.includes(ext) ? '🖼️' : '📄';
+    console.log(`   ${label} ${ext}: ${count} ملف`);
   }
+
+  if (imageFileCount > 0 && !process.env.GOOGLE_API_KEY) {
+    console.log('');
+    console.log(`⚠️ تنبيه: ${imageFileCount} صورة تحتاج مفتاح GOOGLE_API_KEY لتحليلها عبر Gemini Vision.`);
+  }
+
   console.log('');
 
   let successCount = 0;
   let failCount = 0;
+  let skipCount = 0;
   let totalChunks = 0;
+  let imageCount = 0;
 
-  for (let i = 0; i < files.length; i++) {
-    const fileName = files[i];
-    const filePath = path.join(dataDirectory, fileName);
+  for (let i = 0; i < allFiles.length; i++) {
+    const { name: fileName, fullPath: filePath } = allFiles[i];
     const ext = path.extname(fileName).toLowerCase();
-    const title = fileName.replace(/\.(pdf|txt|docx|doc|html|htm)$/i, '');
+    const title = fileName.replace(/\.[^.]+$/, '');
     const slug = `doc-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+    const isImageFile = IMAGE_EXTENSIONS.includes(ext);
 
     try {
-      console.log(`[${i + 1}/${files.length}] ⏳ ${title} (${ext})`);
+      const label = isImageFile ? '🖼️' : '📄';
+      console.log(`[${i + 1}/${allFiles.length}] ${label} ⏳ ${title} (${ext})`);
 
-      // 1. استخراج النص
-      const content = await readFileContent(filePath);
+      // 1. استخراج المحتوى
+      const { text: content, isImage } = await readFileContent(filePath);
 
-      if (!content || content.trim().length < 20) {
+      if (!content || content.trim().length < 10) {
         console.log(`  ⚠️ تخطي — محتوى فارغ أو قصير جداً`);
-        failCount++;
+        skipCount++;
         continue;
       }
 
-      // 2. تحديد النوع تلقائياً
-      const docType = detectDocumentType(fileName, content.length);
+      // 2. تحديد النوع
+      const docType = detectDocumentType(fileName, content.length, isImage);
 
       // 3. إنشاء الوثيقة
       const document = await prisma.sourceDocument.create({
@@ -169,14 +280,14 @@ async function main() {
           type: docType,
           searchableText: content,
           language: 'ar',
-          verificationState: 'verified',
-        }
+          verificationState: isImage ? 'unreviewed' : 'verified',
+          sourceUrl: isImage ? filePath : undefined,
+        },
       });
 
-      // 4. تقطيع النص
+      // 4. تقطيع النص وإدخال المقاطع
       const textChunks = chunkText(content);
 
-      // 5. إدخال المقاطع
       const chunkPromises = textChunks.map((chunk, index) => {
         return prisma.sourceChunk.create({
           data: {
@@ -184,15 +295,17 @@ async function main() {
             ordinal: index + 1,
             text: chunk,
             cleanText: chunk.replace(/[^\w\s\u0600-\u06FF]/g, ' '),
-          }
+          },
         });
       });
 
       await Promise.all(chunkPromises);
       totalChunks += textChunks.length;
       successCount++;
-      console.log(`  ✅ نوع: ${docType} | ${textChunks.length} مقطع | ${content.length} حرف`);
+      if (isImage) imageCount++;
 
+      const method = isImage ? 'Gemini Vision' : ext;
+      console.log(`  ✅ نوع: ${docType} | ${textChunks.length} مقطع | ${content.length} حرف | ${method}`);
     } catch (error) {
       failCount++;
       console.error(`  ❌ خطأ:`, error instanceof Error ? error.message : error);
@@ -202,7 +315,8 @@ async function main() {
   console.log('');
   console.log('═══════════════════════════════════════');
   console.log(`🎉 انتهت عملية الاستيراد!`);
-  console.log(`   ✅ نجح: ${successCount} ملف`);
+  console.log(`   ✅ نجح: ${successCount} ملف (${imageCount} صورة عبر Vision)`);
+  console.log(`   ⚠️ تخطي: ${skipCount} ملف`);
   console.log(`   ❌ فشل: ${failCount} ملف`);
   console.log(`   📄 إجمالي المقاطع: ${totalChunks}`);
   console.log('═══════════════════════════════════════');

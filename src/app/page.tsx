@@ -29,7 +29,8 @@ export default function Home() {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    await submitQuery(text, "retrieve");
+    // Auto-trigger research mode directly instead of retrieve-only
+    await submitQuery(text, "research");
   }
 
   function handleFollowUp(question: string) {

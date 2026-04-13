@@ -8,27 +8,27 @@ import {
     retrieveFromExternalSources,
 } from "./kazima-external-sources";
 
-// ââ Arabic text normalization (mirrors mukhtasar's normalize function) ââââââââ
+// —— Arabic text normalization (mirrors mukhtasar's normalize function) ————————
 // mukhtasar pip package: https://github.com/alshatreee/mukhtasar
 // Python preprocessing bridge: examples/kazima_integration.py in mukhtasar repo
 const ARABIC_DIACRITICS_RE = /[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06DC\u06DF-\u06E8\u06EA-\u06ED]/g;
 const ARABIC_TATWEEL_RE = /\u0640+/g;
-const ARABIC_ALEF_RE = /[Ø¥Ø£Ø¢Ø§]/g;
-const ARABIC_TEH_MARBUTA_RE = /Ø©/g;
-const ARABIC_YEH_RE = /[ÙÙ]/g;
+const ARABIC_ALEF_RE = /[إأآا]/g;
+const ARABIC_TEH_MARBUTA_RE = /ة/g;
+const ARABIC_YEH_RE = /[يى]/g;
 
 /**
  * Normalize Arabic text before passing to keyword search or embedding.
- * Strips diacritics and unifies alef / teh-marbuta / yeh variants â
+ * Strips diacritics and unifies alef / teh-marbuta / yeh variants –
  * mirrors mukhtasar.normalize() from the mukhtasar Python library.
  */
 function normalizeArabic(text: string): string {
     return text
       .replace(ARABIC_DIACRITICS_RE, "")
       .replace(ARABIC_TATWEEL_RE, "")
-      .replace(ARABIC_ALEF_RE, "Ø§")
-      .replace(ARABIC_TEH_MARBUTA_RE, "Ù")
-      .replace(ARABIC_YEH_RE, "Ù");
+      .replace(ARABIC_ALEF_RE, "ا")
+      .replace(ARABIC_TEH_MARBUTA_RE, "ه")
+      .replace(ARABIC_YEH_RE, "ي");
 }
 
 const HTML_TAG_RE = /<[^>]*>/g;
@@ -45,52 +45,32 @@ function stripHtml(html: string): string {
 }
 
 function splitKeywords(query: string): string[] {
-    // Normalize Arabic before splitting â same as mukhtasar.normalize()
-  return normalizeArabic(query)
+    return normalizeArabic(query)
       .replace(NON_WORD_RE, " ")
       .split(/\s+/)
       .map((word) => word.trim())
       .filter((word) => word.length >= 2);
 }
 
-function resolveContentType(optionId: number): SourceContentType {
-    switch (optionId) {
-      case 2:
-              return "manuscript";
-      case 3:
-              return "biography";
-      default:
-              return "article";
-    }
-}
-
-function normalizeTopicUrl(link: string): string | undefined {
-    const normalized = link.trim();
-    if (!normalized) return undefined;
-    if (normalized.startsWith("http://") || normalized.startsWith("https://")) {
-          return normalized;
-    }
-    if (normalized.startsWith("/")) {
-          return normalized;
-    }
-    return "/" + normalized;
-}
-
-interface ScoredTopic {
-    topicId: number;
-    title: string;
-    contentShort: string;
-    contentLong: string;
-    link: string;
-    optionId: number;
-    attributeId: number;
-    score: number;
-}
-
 export interface RetrievalResult {
     sources: SourceExcerpt[];
     totalCandidates: number;
     externalSourcesUsed?: boolean;
+}
+
+interface ScoredChunk {
+    chunkId: number;
+    documentId: number;
+    documentTitle: string;
+    documentType: string;
+    documentSlug: string;
+    sectionTitle: string | null;
+    pageNumber: number | null;
+    cleanText: string;
+    authorName: string | null;
+    sourceUrl: string | null;
+    verificationState: string;
+    score: number;
 }
 
 export async function retrieveFromTopics(
@@ -103,88 +83,134 @@ export async function retrieveFromTopics(
           return { sources: [], totalCandidates: 0 };
     }
 
-  // 1. Local DB retrieval
+  // 1. Local DB retrieval using new SourceDocument + SourceChunk models
   let localSources: SourceExcerpt[] = [];
     let totalCandidates = 0;
 
   if (prisma) {
-        const whereClause: Record<string, unknown> = { active: 4 };
+      // Build where clause for documents
+      const docWhereClause: Record<string, unknown> = {};
 
-      if (filters?.optionIds?.length) {
-              whereClause.optionId = { in: filters.optionIds };
+      if (filters?.contentTypes?.length) {
+          docWhereClause.type = { in: filters.contentTypes };
       }
-        if (filters?.attributeIds?.length) {
-                whereClause.attributeId = { in: filters.attributeIds };
-        }
-        if (filters?.pageIds?.length) {
-                whereClause.pageId = { in: filters.pageIds };
-        }
+      if (filters?.verificationStates?.length) {
+          docWhereClause.verificationState = { in: filters.verificationStates };
+      }
 
-      const orConditions = keywords.flatMap((keyword) => [
+      // Search in SourceChunk using cleanText (free of tags and noise)
+      const chunkOrConditions = keywords.flatMap((keyword) => [
+        { cleanText: { contains: keyword } },
+        { sectionTitle: { contains: keyword } },
+      ]);
+
+      // Also search in document-level fields
+      const docOrConditions = keywords.flatMap((keyword) => [
         { title: { contains: keyword } },
-        { contentShort: { contains: keyword } },
-        { contentLong: { contains: keyword } },
-            ]);
+        { searchableText: { contains: keyword } },
+        { summary: { contains: keyword } },
+      ]);
 
-      const topics = await prisma.topic.findMany({
-              where: {
-                        ...whereClause,
-                        OR: orConditions,
+      // Retrieve chunks with their parent documents
+      const chunks = await prisma.sourceChunk.findMany({
+          where: {
+              OR: [
+                  // Chunks whose cleanText or sectionTitle match
+                  ...chunkOrConditions,
+                  // Chunks belonging to documents whose title/searchableText match
+                  {
+                      document: {
+                          AND: [
+                              docWhereClause,
+                              { OR: docOrConditions },
+                          ],
+                      },
+                  },
+              ],
+          },
+          take: maxSources * 6,
+          include: {
+              document: {
+                  select: {
+                      id: true,
+                      title: true,
+                      type: true,
+                      slug: true,
+                      authorName: true,
+                      sourceUrl: true,
+                      verificationState: true,
+                      summary: true,
+                  },
               },
-              take: maxSources * 4,
-              select: {
-                        topicId: true,
-                        title: true,
-                        contentShort: true,
-                        contentLong: true,
-                        link: true,
-                        optionId: true,
-                        attributeId: true,
-              },
+          },
       });
 
-      totalCandidates = topics.length;
+      totalCandidates = chunks.length;
 
-      const scored: ScoredTopic[] = topics.map((topic) => {
-              let score = 0;
-              const titleLower = topic.title.toLowerCase();
-              const shortPlain = stripHtml(topic.contentShort || "");
-              const longPlain = stripHtml(topic.contentLong || "");
+      // Score each chunk based on keyword presence in cleanText and document title
+      const scored: ScoredChunk[] = chunks.map((chunk) => {
+          let score = 0;
+          const titleNorm = normalizeArabic(chunk.document.title.toLowerCase());
+          const cleanTextNorm = normalizeArabic(chunk.cleanText.toLowerCase());
+          const sectionNorm = chunk.sectionTitle
+              ? normalizeArabic(chunk.sectionTitle.toLowerCase())
+              : "";
 
-                                                     for (const keyword of keywords) {
-                                                               const normalizedKeyword = keyword.toLowerCase();
-                                                               if (titleLower.includes(normalizedKeyword)) score += 3;
-                                                               if (shortPlain.includes(keyword)) score += 2;
-                                                               if (longPlain.includes(keyword)) score += 1;
-                                                     }
+          for (const keyword of keywords) {
+              const kw = keyword.toLowerCase();
+              if (titleNorm.includes(kw)) score += 3;
+              if (sectionNorm.includes(kw)) score += 2;
+              if (cleanTextNorm.includes(kw)) score += 1;
+          }
 
-                                                     return { ...topic, score };
+          return {
+              chunkId: chunk.id,
+              documentId: chunk.document.id,
+              documentTitle: chunk.document.title,
+              documentType: chunk.document.type,
+              documentSlug: chunk.document.slug,
+              sectionTitle: chunk.sectionTitle,
+              pageNumber: chunk.pageNumber,
+              cleanText: chunk.cleanText,
+              authorName: chunk.document.authorName,
+              sourceUrl: chunk.document.sourceUrl,
+              verificationState: chunk.document.verificationState,
+              score,
+          };
       });
 
       const topLocal = scored
-          .filter((topic) => topic.score > 0)
-          .filter((topic) => {
-                    if (!filters?.contentTypes?.length) return true;
-                    return filters.contentTypes.includes(resolveContentType(topic.optionId));
-          })
+          .filter((chunk) => chunk.score > 0)
           .sort((left, right) => right.score - left.score)
           .slice(0, maxSources);
 
-      localSources = topLocal.map((topic) => {
-              const shortPlain = stripHtml(topic.contentShort || "");
-              const excerpt =
-                        shortPlain.length > 280
-                  ? shortPlain.substring(0, 280) + "..."
-                          : shortPlain;
+      localSources = topLocal.map((chunk) => {
+          // Use cleanText for the excerpt (free of retrieval tags and noise)
+          const cleanExcerpt = stripHtml(chunk.cleanText);
+          const excerpt =
+              cleanExcerpt.length > 280
+                  ? cleanExcerpt.substring(0, 280) + "..."
+                  : cleanExcerpt;
 
-                                        return {
-                                                  sourceId: "topic-" + topic.topicId,
-                                                  title: topic.title,
-                                                  type: resolveContentType(topic.optionId),
-                                                  excerpt,
-                                                  url: (() => { const n = normalizeTopicUrl(topic.link); if (!n) return "https://www.kazima.org/pages/articles.php"; if (n.startsWith("http")) return n; if (n.includes("/pages/topics/")) return "https://www.kazima.org" + n; const slug = n.startsWith("/") ? n.slice(1) : n; return "https://www.kazima.org/pages/topics/" + slug + (slug.endsWith(".php") ? "" : ".php"); })(),
-                                                  score: Math.min(topic.score / 10, 1.0),
-                                        };
+          const url = chunk.sourceUrl
+              ? chunk.sourceUrl
+              : `https://www.kazima.org/pages/topics/${chunk.documentSlug}`;
+
+          return {
+              sourceId: "doc-" + chunk.documentId,
+              chunkId: "chunk-" + chunk.chunkId,
+              title: chunk.documentTitle,
+              type: chunk.documentType as SourceContentType,
+              excerpt,
+              url,
+              score: Math.min(chunk.score / 10, 1.0),
+              sectionTitle: chunk.sectionTitle ?? undefined,
+              pageNumber: chunk.pageNumber ?? undefined,
+              metadata: {
+                  authorName: chunk.authorName ?? undefined,
+                  verificationState: chunk.verificationState,
+              },
+          };
       });
   }
 

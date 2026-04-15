@@ -2,13 +2,13 @@ import type { Metadata } from "next";
 import "./embed.css";
 
 export const metadata: Metadata = {
-    title: "بحث كاظمة",
+      title: "بحث كاظمة",
 };
 
 export default function EmbedLayout({
-    children,
+      children,
 }: {
-    children: React.ReactNode;
+      children: React.ReactNode;
 }) {
-    return <>{children}</>>;
-}</>
+      return children as React.ReactElement;
+}

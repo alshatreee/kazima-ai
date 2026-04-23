@@ -11,6 +11,7 @@ interface TopicItem {
   author: string;
   picture: string;
   contentShort: string;
+  contentLong?: string;
   optionId: number;
   attributeId: number;
   publishedWhen: number;

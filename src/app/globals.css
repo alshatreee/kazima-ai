@@ -363,3 +363,448 @@ body {
   .search-input { font-size: 0.9rem; }
   .search-btn { width: 2.5rem; height: 2.5rem; }
 }
+
+/* ══════════════════════════════════════════════════
+   Detail Pages — Kazima Design System (.kz-)
+   ══════════════════════════════════════════════════ */
+
+/* ── Layout ── */
+.kz-detail-page {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.kz-detail-header {
+  padding: 1rem 1.5rem;
+  max-width: 52rem;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.kz-back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+  color: var(--gold);
+  text-decoration: none;
+  transition: color 0.15s;
+}
+.kz-back-link:hover { color: var(--accent); }
+
+.kz-detail-content {
+  flex: 1;
+  max-width: 52rem;
+  margin: 0 auto;
+  padding: 0 1.5rem 3rem;
+  width: 100%;
+}
+
+.kz-detail-loading {
+  display: flex;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 6rem 0;
+}
+
+.kz-detail-error {
+  text-align: center;
+  padding: 4rem 1rem;
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+.kz-detail-error .kz-back-link {
+  display: inline-flex;
+  margin-top: 1rem;
+}
+
+/* ── Page Title ── */
+.kz-page-title {
+  font-family: "Amiri", "Noto Naskh Arabic", "Palatino Linotype", serif;
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: var(--accent);
+  line-height: 1.4;
+  margin: 0;
+}
+
+/* ── Sections ── */
+.kz-detail-section {
+  margin-top: 2rem;
+}
+
+.kz-section-title {
+  font-family: "Amiri", "Noto Naskh Arabic", serif;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--accent);
+  padding-bottom: 0.5rem;
+  border-bottom: 2px solid var(--gold-soft);
+  margin-bottom: 1rem;
+}
+
+.kz-detail-text {
+  font-size: 0.92rem;
+  line-height: 1.9;
+  color: var(--fg);
+}
+
+.kz-reading-text {
+  font-size: 1rem;
+  line-height: 2.2;
+  color: var(--fg);
+}
+
+/* ── Meta Tags ── */
+.kz-meta-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.75rem;
+}
+
+.kz-meta-tag {
+  display: inline-block;
+  background: rgba(48, 74, 64, 0.07);
+  color: var(--accent);
+  font-size: 0.78rem;
+  padding: 0.3rem 0.7rem;
+  border-radius: 999px;
+  border: 1px solid rgba(48, 74, 64, 0.1);
+}
+
+.kz-meta-tag--gold {
+  background: var(--gold-soft);
+  color: var(--gold);
+  border-color: rgba(139, 106, 59, 0.15);
+}
+
+.kz-tags-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 1.5rem;
+}
+
+/* ── Book Detail ── */
+.kz-book-hero {
+  display: flex;
+  gap: 2rem;
+  align-items: flex-start;
+}
+
+.kz-book-cover {
+  flex-shrink: 0;
+  width: 200px;
+  height: 280px;
+  border-radius: 0.75rem;
+  overflow: hidden;
+  background: rgba(48, 74, 64, 0.06);
+  border: 1px solid var(--line);
+  box-shadow: 0 4px 20px rgba(30, 46, 40, 0.1);
+}
+.kz-book-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.kz-book-cover-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+}
+
+.kz-book-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.kz-book-author {
+  display: inline-block;
+  margin-top: 0.5rem;
+  font-size: 0.95rem;
+  color: var(--gold);
+  text-decoration: none;
+  font-weight: 500;
+}
+.kz-book-author:hover {
+  text-decoration: underline;
+}
+
+.kz-book-actions {
+  display: flex;
+  gap: 0.6rem;
+  margin-top: 1.25rem;
+}
+
+.kz-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.6rem 1.2rem;
+  border-radius: 0.6rem;
+  font-size: 0.85rem;
+  font-weight: 500;
+  border: none;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.kz-btn--save {
+  background: var(--gold-soft);
+  color: var(--gold);
+  border: 1px solid rgba(139, 106, 59, 0.2);
+}
+.kz-btn--save:hover {
+  background: rgba(139, 106, 59, 0.2);
+}
+
+/* ── Article Detail ── */
+.kz-article-header-block {
+  margin-bottom: 1.5rem;
+}
+
+.kz-article-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem;
+  margin-top: 0.75rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.kz-article-author {
+  color: var(--gold);
+  text-decoration: none;
+  font-weight: 500;
+}
+.kz-article-author:hover { text-decoration: underline; }
+
+.kz-meta-separator::before {
+  content: "·";
+  margin: 0 0.4rem;
+  color: var(--line);
+}
+
+.kz-article-image {
+  border-radius: 1rem;
+  overflow: hidden;
+  margin-bottom: 1.5rem;
+  border: 1px solid var(--line);
+}
+.kz-article-image img {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+/* ── Author Detail ── */
+.kz-author-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 0.75rem;
+  margin-bottom: 2rem;
+}
+
+.kz-author-avatar {
+  width: 100px;
+  height: 100px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: rgba(48, 74, 64, 0.08);
+  border: 3px solid var(--gold-soft);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+}
+.kz-author-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.kz-author-stats {
+  display: flex;
+  gap: 0.5rem;
+}
+
+/* ── Books Grid (Author page) ── */
+.kz-books-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 1rem;
+}
+
+.kz-book-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  text-decoration: none;
+  color: var(--fg);
+  padding: 0.75rem;
+  border-radius: 0.75rem;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.kz-book-card:hover {
+  border-color: rgba(48, 74, 64, 0.25);
+  box-shadow: 0 4px 16px rgba(30, 46, 40, 0.08);
+}
+
+.kz-book-card-cover {
+  width: 100px;
+  height: 140px;
+  border-radius: 0.5rem;
+  overflow: hidden;
+  background: rgba(48, 74, 64, 0.06);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  margin-bottom: 0.5rem;
+}
+.kz-book-card-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.kz-book-card h3 {
+  font-size: 0.82rem;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--accent);
+}
+
+/* ── Related Grid ── */
+.kz-related-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 0.75rem;
+}
+
+.kz-related-card {
+  display: block;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 1rem;
+  padding: 1rem 1.25rem;
+  text-decoration: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.kz-related-card:hover {
+  border-color: rgba(48, 74, 64, 0.25);
+  box-shadow: 0 4px 16px rgba(30, 46, 40, 0.08);
+}
+.kz-related-card h3 {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--accent);
+  margin-bottom: 0.35rem;
+  line-height: 1.5;
+}
+.kz-related-card p {
+  font-size: 0.8rem;
+  color: var(--muted);
+  line-height: 1.6;
+}
+.kz-related-author {
+  display: block;
+  font-size: 0.78rem;
+  color: var(--gold);
+  margin-bottom: 0.35rem;
+}
+
+/* ── Info Grid (Book info) ── */
+.kz-info-grid {
+  display: grid;
+  grid-template-columns: 8rem 1fr;
+  gap: 0.5rem 1rem;
+  font-size: 0.88rem;
+}
+.kz-info-grid dt {
+  color: var(--muted);
+  font-weight: 500;
+}
+.kz-info-grid dd {
+  color: var(--fg);
+}
+
+/* ── Video Detail ── */
+.kz-video-player {
+  position: relative;
+  width: 100%;
+  padding-bottom: 56.25%;
+  border-radius: 1rem;
+  overflow: hidden;
+  background: #000;
+  margin-bottom: 1.5rem;
+}
+.kz-video-player iframe {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  border: none;
+}
+
+.kz-video-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  padding: 4rem 1rem;
+  background: rgba(48, 74, 64, 0.04);
+  border: 1px solid var(--line);
+  border-radius: 1rem;
+  margin-bottom: 1.5rem;
+  color: var(--muted);
+}
+
+/* ── Detail Pages Responsive ── */
+@media (max-width: 640px) {
+  .kz-book-hero {
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+  }
+  .kz-book-cover {
+    width: 160px;
+    height: 220px;
+  }
+  .kz-book-info {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  .kz-book-actions {
+    justify-content: center;
+  }
+  .kz-page-title {
+    font-size: 1.4rem;
+  }
+  .kz-detail-content {
+    padding: 0 1rem 2rem;
+  }
+  .kz-books-grid {
+    grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  }
+  .kz-related-grid {
+    grid-template-columns: 1fr;
+  }
+  .kz-info-grid {
+    grid-template-columns: 6rem 1fr;
+  }
+}

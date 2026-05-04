@@ -7,28 +7,32 @@ import type {
 import {
     retrieveFromExternalSources,
 } from "./kazima-external-sources";
+import {
+    isMostlyLatin,
+    translateLatinQuery,
+} from "./kazima-name-dictionary";
 
-// ââ Arabic text normalization (mirrors mukhtasar's normalize function) ââââââââ
+// ── Arabic text normalization (mirrors mukhtasar's normalize function) ────────
 // mukhtasar pip package: https://github.com/alshatreee/mukhtasar
 // Python preprocessing bridge: examples/kazima_integration.py in mukhtasar repo
-const ARABIC_DIACRITICS_RE = /[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06DC\u06DF-\u06E8\u06EA-\u06ED]/g;
-const ARABIC_TATWEEL_RE = /\u0640+/g;
-const ARABIC_ALEF_RE = /[Ø¥Ø£Ø¢Ø§]/g;
-const ARABIC_TEH_MARBUTA_RE = /Ø©/g;
-const ARABIC_YEH_RE = /[ÙÙ]/g;
+const ARABIC_DIACRITICS_RE = /[ؐ-ًؚ-ٰٟۖ-ۜ۟-۪ۨ-ۭ]/g;
+const ARABIC_TATWEEL_RE = /ـ+/g;
+const ARABIC_ALEF_RE = /[إأآا]/g;
+const ARABIC_TEH_MARBUTA_RE = /ة/g;
+const ARABIC_YEH_RE = /[ىي]/g;
 
 /**
  * Normalize Arabic text before passing to keyword search or embedding.
- * Strips diacritics and unifies alef / teh-marbuta / yeh variants â
+ * Strips diacritics and unifies alef / teh-marbuta / yeh variants —
  * mirrors mukhtasar.normalize() from the mukhtasar Python library.
  */
 function normalizeArabic(text: string): string {
     return text
       .replace(ARABIC_DIACRITICS_RE, "")
       .replace(ARABIC_TATWEEL_RE, "")
-      .replace(ARABIC_ALEF_RE, "Ø§")
-      .replace(ARABIC_TEH_MARBUTA_RE, "Ù")
-      .replace(ARABIC_YEH_RE, "Ù");
+      .replace(ARABIC_ALEF_RE, "ا")
+      .replace(ARABIC_TEH_MARBUTA_RE, "ه")
+      .replace(ARABIC_YEH_RE, "ي");
 }
 
 const HTML_TAG_RE = /<[^>]*>/g;
@@ -45,12 +49,53 @@ function stripHtml(html: string): string {
 }
 
 function splitKeywords(query: string): string[] {
-    // Normalize Arabic before splitting â same as mukhtasar.normalize()
-  return normalizeArabic(query)
-      .replace(NON_WORD_RE, " ")
-      .split(/\s+/)
-      .map((word) => word.trim())
-      .filter((word) => word.length >= 2);
+  // Normalize Arabic before splitting — same as mukhtasar.normalize()
+  const tokens = normalizeArabic(query)
+    .replace(NON_WORD_RE, " ")
+    .split(/\s+/)
+    .map((word) => word.trim())
+    .filter((word) => word.length >= 2);
+
+  // Keep BOTH the original token and the ال-stripped form so we
+  // recall titles whether the corpus stores "المدرسة" or "مدرسة".
+  const expanded = new Set<string>();
+  for (const t of tokens) {
+    expanded.add(t);
+    if (t.startsWith("ال") && t.length > 3) expanded.add(t.slice(2));
+  }
+  return Array.from(expanded);
+}
+
+/**
+ * Build the list of search keywords for a query.
+ *
+ * If the query is mostly Latin, look up known Arabic↔English name
+ * mappings (Yusuf bin Issa Al-Qenaei → القناعي / يوسف بن عيسى القناعي,
+ * etc.) and search using the canonical Arabic forms. Falls back to the
+ * Latin tokens themselves so external English-language sources still
+ * match.
+ */
+function buildKeywords(query: string): { keywords: string[]; usedTranslation: boolean } {
+    const baseKeywords = splitKeywords(query);
+
+  if (!isMostlyLatin(query)) {
+    return { keywords: baseKeywords, usedTranslation: false };
+  }
+
+  const { arabicTerms } = translateLatinQuery(query);
+  if (arabicTerms.length === 0) {
+    return { keywords: baseKeywords, usedTranslation: false };
+  }
+
+  // Translate Arabic forms into searchable keywords (split + normalize).
+  const translated: string[] = [];
+  for (const term of arabicTerms) {
+    for (const k of splitKeywords(term)) translated.push(k);
+  }
+
+  // Combine: translated Arabic first (preferred), original Latin second.
+  const merged = new Set<string>([...translated, ...baseKeywords]);
+  return { keywords: Array.from(merged), usedTranslation: true };
 }
 
 function resolveContentType(optionId: number): SourceContentType {
@@ -82,8 +127,8 @@ interface ScoredTopic {
     contentShort: string;
     contentLong: string;
     link: string;
-    optionId: number;
-    attributeId: number;
+    optionId: number | null;
+    attributeId: number | null;
     score: number;
 }
 
@@ -91,6 +136,67 @@ export interface RetrievalResult {
     sources: SourceExcerpt[];
     totalCandidates: number;
     externalSourcesUsed?: boolean;
+    translatedFromLatin?: boolean;
+}
+
+/**
+ * Deduplicate retrieved sources.
+ *
+ * Two layers:
+ *   (1) Same canonical URL → keep highest-scoring entry.
+ *   (2) Highly similar excerpts (same article surfaced as multiple
+ *       chunks) → keep one per excerpt fingerprint.
+ */
+function dedupSources(sources: SourceExcerpt[]): SourceExcerpt[] {
+  const byUrl = new Map<string, SourceExcerpt>();
+  for (const s of sources) {
+    const canon = canonicalUrl(s.url);
+    // Generic fallback URLs (no id) must not collapse different topics —
+    // fall back to the unique sourceId as the dedup key in that case.
+    const isGenericFallback =
+      !canon || canon.endsWith("/pages/articles.php") || canon.endsWith("/articles.php");
+    const key = isGenericFallback ? s.sourceId : canon;
+    const prev = byUrl.get(key);
+    if (!prev || s.score > prev.score) byUrl.set(key, s);
+  }
+  const urlDeduped = Array.from(byUrl.values());
+
+  const byFingerprint = new Map<string, SourceExcerpt>();
+  for (const s of urlDeduped) {
+    const fp = fingerprint(s.title, s.excerpt);
+    const prev = byFingerprint.get(fp);
+    if (!prev || s.score > prev.score) byFingerprint.set(fp, s);
+  }
+  return Array.from(byFingerprint.values());
+}
+
+function canonicalUrl(url?: string): string | undefined {
+  if (!url) return undefined;
+  try {
+    const u = new URL(url, "https://www.kazima.org");
+    // Strip fragments and tracking params; keep host + pathname + sorted core query.
+    const params = new URLSearchParams(u.search);
+    const keep = ["id", "topic", "topicId", "page"];
+    const sortedParams = keep
+      .filter((k) => params.has(k))
+      .map((k) => `${k}=${params.get(k)}`)
+      .join("&");
+    return `${u.hostname}${u.pathname}${sortedParams ? "?" + sortedParams : ""}`.toLowerCase();
+  } catch {
+    return url.toLowerCase();
+  }
+}
+
+function fingerprint(title: string, excerpt: string): string {
+  // Use a longer excerpt window so we only collapse genuine duplicates,
+  // not different topics that share the same title prefix.
+  const normTitle = normalizeArabic(title).toLowerCase().replace(/\s+/g, " ").trim();
+  const normExcerpt = normalizeArabic(excerpt)
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 200);
+  return normTitle + "::" + normExcerpt;
 }
 
 export async function retrieveFromTopics(
@@ -98,7 +204,7 @@ export async function retrieveFromTopics(
     maxSources: number,
     filters?: RetrievalFilters,
   ): Promise<RetrievalResult> {
-    const keywords = splitKeywords(query);
+    const { keywords, usedTranslation } = buildKeywords(query);
     if (keywords.length === 0) {
           return { sources: [], totalCandidates: 0 };
     }
@@ -165,10 +271,10 @@ export async function retrieveFromTopics(
           .filter((topic) => topic.score > 0)
           .filter((topic) => {
                     if (!filters?.contentTypes?.length) return true;
-                    return filters.contentTypes.includes(resolveContentType(topic.optionId));
+                    return filters.contentTypes.includes(resolveContentType(topic.optionId ?? 0));
           })
           .sort((left, right) => right.score - left.score)
-          .slice(0, maxSources);
+          .slice(0, maxSources * 2);
 
       localSources = topLocal.map((topic) => {
               const shortPlain = stripHtml(topic.contentShort || "");
@@ -180,7 +286,7 @@ export async function retrieveFromTopics(
                                         return {
                                                   sourceId: "topic-" + topic.topicId,
                                                   title: topic.title,
-                                                  type: resolveContentType(topic.optionId),
+                                                  type: resolveContentType(topic.optionId ?? 0),
                                                   excerpt,
                                                   url: (() => { const n = normalizeTopicUrl(topic.link); if (!n) return "https://www.kazima.org/pages/articles.php"; if (n.startsWith("http")) return n; if (n.includes("/pages/topics/")) return "https://www.kazima.org" + n; const slug = n.startsWith("/") ? n.slice(1) : n; return "https://www.kazima.org/pages/topics/" + slug + (slug.endsWith(".php") ? "" : ".php"); })(),
                                                   score: Math.min(topic.score / 10, 1.0),
@@ -230,11 +336,14 @@ export async function retrieveFromTopics(
   const merged = [...boostedLocal, ...externalSources];
     merged.sort((a, b) => b.score - a.score);
 
-  const finalSources = merged.slice(0, maxSources);
+  // 4. Dedup (URL canonicalization + excerpt fingerprint)
+  const deduped = dedupSources(merged);
+  const finalSources = deduped.slice(0, maxSources);
 
   return {
         sources: finalSources,
         totalCandidates: totalCandidates + externalSources.length,
         externalSourcesUsed: externalUsed,
+        translatedFromLatin: usedTranslation,
   };
 }

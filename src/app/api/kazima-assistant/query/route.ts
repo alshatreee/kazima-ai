@@ -19,6 +19,7 @@ import {
   buildScholarUserPrompt,
   KAZIMA_SCHOLAR_SYSTEM_PROMPT,
 } from "@/lib/kazima-scholar-prompts";
+import { classifyScope } from "@/lib/kazima-scope-guard";
 
 const AI_MODEL = "claude-sonnet-4-20250514";
 
@@ -146,19 +147,42 @@ function buildRetrievalOnlyResponse(
   };
 }
 
+/**
+ * Strip ```json … ``` fences and any prose preamble before parsing.
+ * The LLM occasionally wraps its JSON in fences which the previous
+ * sanitizer did not handle, leaking the raw fence into the answer.
+ */
+function extractJsonPayload(raw: string): string {
+  const trimmed = raw.trim();
+
+  // Fenced markdown code block.
+  const fence = trimmed.match(/```(?:json|JSON)?\s*([\s\S]*?)```/);
+  if (fence && fence[1]) return fence[1].trim();
+
+  // First well-formed object literal.
+  const firstBrace = trimmed.indexOf("{");
+  const lastBrace = trimmed.lastIndexOf("}");
+  if (firstBrace !== -1 && lastBrace > firstBrace) {
+    return trimmed.slice(firstBrace, lastBrace + 1);
+  }
+  return trimmed;
+}
+
 function sanitizeAiResponse(
   rawJson: string,
 ): { answer: string; summary: string; sections: Array<{ title: string; body: string }> } {
+  const candidate = extractJsonPayload(rawJson);
   try {
-    const parsed = JSON.parse(rawJson);
+    const parsed = JSON.parse(candidate);
     return {
       answer: typeof parsed.answer === "string" ? parsed.answer : "",
       summary: typeof parsed.summary === "string" ? parsed.summary : "",
       sections: Array.isArray(parsed.sections) ? parsed.sections : [],
     };
   } catch {
+    // If the model returned plain prose (no JSON), use it directly.
     return {
-      answer: rawJson,
+      answer: candidate,
       summary: "تم الحصول على النتيجة من طبقة الذكاء الاصطناعي.",
       sections: [],
     };
@@ -180,11 +204,52 @@ function validateConfidence(value?: string): string {
   return value && validConfidences.includes(value) ? value : "medium";
 }
 
+function buildOutOfScopeResponse(
+  request: AssistantQueryRequest,
+  mode: AssistantResponseMode,
+  decision: ReturnType<typeof classifyScope>,
+): AssistantQueryResponse {
+  const fallback = createEmptyAssistantResponse(request.query, mode);
+  const message =
+    decision.rejectionMessage ||
+    "هذا المساعد متخصص في التراث الكويتي والخليجي.";
+  const chips = decision.suggestedChips || [
+    "المدرسة المباركية",
+    "تاريخ الكويت",
+    "آل صباح",
+  ];
+
+  return {
+    ...fallback,
+    mode,
+    scope: "needs_verification",
+    confidence: "high",
+    answer: message,
+    summary: "السؤال خارج نطاق منصة كاظمة.",
+    sections: [
+      {
+        title: "اقتراحات للبحث في كاظمة",
+        body: chips.map((c, i) => `${i + 1}. ${c}`).join("\n"),
+      },
+    ],
+    citations: [],
+    readMore: [],
+    followUpQuestions: chips,
+    disclaimers: ["تم رفض السؤال تلقائيًا لأن مفرداته خارج نطاق التراث الكويتي."],
+    retrieval: {
+      totalCandidates: 0,
+      returnedSources: 0,
+      sources: [],
+      externalSourcesUsed: false,
+    },
+  };
+}
+
 export async function GET() {
   return NextResponse.json({
-    apiVersion: "1.0.0",
+    apiVersion: "1.1.0",
     modes: ["retrieve", "brief", "research"],
-    description: "Kazima Assistant hybrid query API",
+    description: "Kazima Assistant hybrid query API (with scope guard + dedup + LLM synthesis)",
   });
 }
 
@@ -214,6 +279,17 @@ export async function POST(request: NextRequest) {
     const mode = normalizeAssistantMode(requestMode);
     const maxSources = clampMaxSources(requestMaxSources);
 
+    // ── Scope guard (Phase 1) ──────────────────────────────────
+    // Reject obviously off-topic queries before retrieval to avoid
+    // surfacing irrelevant heritage articles for things like
+    // "Bitcoin price" or "ما عاصمة فرنسا؟".
+    const scopeDecision = classifyScope(query);
+    if (!scopeDecision.inScope) {
+      return NextResponse.json(
+        buildOutOfScopeResponse(validation.data, mode, scopeDecision),
+      );
+    }
+
     const retrieval = await retrieveFromTopics(query, maxSources);
 
     if (mode === "retrieve") {
@@ -232,12 +308,6 @@ export async function POST(request: NextRequest) {
     }
 
     const client = new Anthropic();
-    const sourcesText = retrieval.sources
-      .map(
-        (source, index) =>
-          `[${index + 1}] ${source.title}\n${source.excerpt}`,
-      )
-      .join("\n\n");
 
     const userPrompt = buildScholarUserPrompt({
       request: { query, mode, userIntent },

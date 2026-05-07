@@ -9,10 +9,20 @@
  *
  * Pure Tailwind animate-pulse — no external deps. Right-aligned for
  * Arabic flow so the transition into the real answer feels seamless.
+ *
+ * NOTE: Always renders a card-shaped skeleton (NOT 3 dots). If you see
+ * dots in production, the build is stale or the import path drifted —
+ * check src/app/assistant/page.tsx imports this component directly.
  */
 export function LoadingSkeleton() {
   return (
-    <section dir="rtl" className="kazima-panel rounded-[2rem] p-5 text-right sm:p-6">
+    <section
+      dir="rtl"
+      data-testid="kazima-loading-skeleton"
+      aria-busy="true"
+      aria-live="polite"
+      className="kazima-panel rounded-[2rem] p-5 text-right sm:p-6"
+    >
       <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="text-xs tracking-[0.2em] text-[var(--muted)]">

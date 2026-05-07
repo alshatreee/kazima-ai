@@ -1,3 +1,4 @@
+ 
 /**
  * Phase 2A — Kazima assistant query API.
  *
@@ -215,6 +216,52 @@ function buildOutOfScopeResponse(
   };
 }
 
+
+/**
+ * Derive a user-friendly summary line for the AnswerPanel header.
+ *
+ * The previous implementation used `\`تم تحليل N مصدر من كاظمة باستخدام
+ * Claude (model)\`` which (a) leaks the model identifier into the UI and
+ * (b) gives the user no signal about the actual answer. We now try to
+ * extract the first sentence of the synthesized answer (stripping markdown
+ * bold + numeric citation markers) and fall back to a clean count-only
+ * line if the answer is unusable.
+ */
+function deriveSynthesisSummary(
+  answer: string,
+  sourceCount: number,
+  insufficient: boolean,
+): string {
+  if (insufficient) return "لم تكفِ المقاطع المسترجعة لإجابة موثقة.";
+
+  const cleaned = (answer || "")
+    // Drop markdown bold/italic markers
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/\*([^*]+)\*/g, "$1")
+    // Drop heading hashes at line starts
+    .replace(/^#{1,6}\s+/gm, "")
+    // Drop numeric citation markers like (1)(2)
+    .replace(/\((\d{1,2})\)/g, "")
+    // Collapse whitespace
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!cleaned) {
+    return sourceCount > 0
+      ? `استنادًا إلى ${sourceCount} مصادر من كاظمة.`
+      : "تم بناء الإجابة من كاظمة.";
+  }
+
+  // First sentence: split on Arabic / Latin sentence terminators.
+  const firstSentenceMatch = cleaned.match(/^[^.!?؟\n]{1,160}[.!?؟]?/);
+  let summary = (firstSentenceMatch ? firstSentenceMatch[0] : cleaned).trim();
+
+  // Hard cap so the header doesn't wrap awkwardly.
+  if (summary.length > 110) summary = summary.slice(0, 107).trim() + "...";
+  return summary;
+}
+
+
 function buildSynthesizedResponse(
   request: AssistantQueryRequest,
   mode: AssistantResponseMode,
@@ -236,9 +283,11 @@ function buildSynthesizedResponse(
         ? "high"
         : "medium",
     answer: synthesis.answer,
-    summary: synthesis.insufficient
-      ? "لم تكفِ المقاطع المسترجعة لإجابة موثقة."
-      : `تم تحليل ${sourceCount} مصدر من كاظمة باستخدام Claude (${synthesis.usage.model}).`,
+    summary: deriveSynthesisSummary(
+      synthesis.answer,
+      sourceCount,
+      synthesis.insufficient,
+    ),
     // Phase 2A keeps sections empty — the synthesis answer is the panel.
     sections: [],
     citations: toDefaultCitations(retrieval.sources),
@@ -386,3 +435,4 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+

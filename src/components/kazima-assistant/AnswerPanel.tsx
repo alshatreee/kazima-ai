@@ -89,6 +89,10 @@ function renderInline(line: string, keyBase: string): React.ReactNode[] {
 }
 
 function MarkdownLite({ text }: { text: string }) {
+  // Defensive: tolerate missing/non-string input so the panel never crashes
+  // silently on edge inputs (e.g. when the API contract drifts).
+  if (!text || typeof text !== "string") return null;
+
   const blocks = text.replace(/\r\n/g, "\n").split(/\n{2,}/);
   const nodes: React.ReactNode[] = [];
   blocks.forEach((raw, bi) => {
@@ -155,8 +159,16 @@ function MarkdownLite({ text }: { text: string }) {
 }
 
 export function AnswerPanel({ response }: AnswerPanelProps) {
-  const hasAnswer = response.answer.trim().length > 0;
-  const hasSections = response.sections.length > 0;
+  // Defensive: tolerate missing/null answer field. Treat any non-empty string
+  // as a valid synthesized answer that MUST render above the source cards,
+  // regardless of `sections` state.
+  const rawAnswer =
+    typeof response.answer === "string" ? response.answer : "";
+  const hasAnswer = rawAnswer.trim().length > 0;
+  const hasSections =
+    Array.isArray(response.sections) && response.sections.length > 0;
+  const hasSummary =
+    typeof response.summary === "string" && response.summary.trim().length > 0;
 
   return (
     <section className="kazima-panel rounded-[2rem] p-5 sm:p-6">
@@ -165,7 +177,7 @@ export function AnswerPanel({ response }: AnswerPanelProps) {
           <p className="text-xs tracking-[0.2em] text-[var(--muted)]">
             إجابة المساعد
           </p>
-          {response.summary ? (
+          {hasSummary ? (
             <h3 className="mt-2 text-xl font-semibold text-[var(--foreground)]">
               {response.summary.length > 80
                 ? response.summary.substring(0, 80) + "..."
@@ -179,7 +191,9 @@ export function AnswerPanel({ response }: AnswerPanelProps) {
         </div>
       </div>
 
-      {/* Synthesized answer (Phase 2A) — always render above sources when present */}
+      {/* Synthesized answer (Phase 2A) — ALWAYS render above sources when
+          present, regardless of hasSections. This is the primary surface
+          for the LLM output and must never be gated behind section state. */}
       {hasAnswer ? (
         <div className="mb-5 rounded-[1.75rem] border border-[var(--line)] bg-[rgba(255,255,255,0.85)] p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)]">
           <div className="mb-4 flex flex-wrap gap-2">
@@ -187,7 +201,7 @@ export function AnswerPanel({ response }: AnswerPanelProps) {
             <span className="kazima-pill">يستحسن المراجعة البشرية</span>
           </div>
           <div className="kazima-scroll max-h-[34rem] overflow-auto text-sm text-[var(--foreground)] sm:text-[0.95rem]">
-            <MarkdownLite text={response.answer} />
+            <MarkdownLite text={rawAnswer} />
           </div>
         </div>
       ) : null}

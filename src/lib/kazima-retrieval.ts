@@ -1,3 +1,4 @@
+ 
 import { prisma } from "./prisma";
 import type {
     RetrievalFilters,
@@ -48,20 +49,62 @@ function stripHtml(html: string): string {
       .trim();
 }
 
+
+// ── Honorific stop-prefixes ──────────────────────────────────────────────
+// Honorific titles ("الشيخ", "الإمام", "الدكتور", ...) are extremely common
+// across the Kazima corpus, so when a user asks "من هو الشيخ يوسف بن عيسى
+// القناعي؟" the bare token "الشيخ" dominates BM25-style scoring and pulls
+// in unrelated sources (e.g. fatwa interviews about بدعة that mention
+// "الشيخ X"). We strip these tokens from the keyword set entirely — both
+// in their `ال`-prefixed and bare forms, post-Arabic-normalization.
+//
+// If you add a new honorific, ensure the form here is the post-
+// `normalizeArabic` form (alef variants → ا, ة → ه, no diacritics).
+const HONORIFIC_PREFIXES_NORMALIZED = new Set<string>([
+  "الشيخ", "شيخ",
+  "العلامه", "علامه",
+  "الامام", "امام",
+  "الدكتور", "دكتور",
+  "الاستاذ", "استاذ",
+  "السيد", "سيد",
+  "الحاج", "حاج",
+  "السلطان", "سلطان",
+  "الامير", "امير",
+  "الملك", "ملك",
+  "الفقيه", "فقيه",
+  "الحافظ", "حافظ",
+  "المهندس", "مهندس",
+  "الاديب", "اديب",
+  "العالم", "عالم",
+  "الشهيد", "شهيد",
+]);
+
+function isHonorific(normalizedToken: string): boolean {
+  return HONORIFIC_PREFIXES_NORMALIZED.has(normalizedToken);
+}
+
 function splitKeywords(query: string): string[] {
   // Normalize Arabic before splitting — same as mukhtasar.normalize()
   const tokens = normalizeArabic(query)
     .replace(NON_WORD_RE, " ")
     .split(/\s+/)
     .map((word) => word.trim())
-    .filter((word) => word.length >= 2);
+    .filter((word) => word.length >= 2)
+    // Drop honorific titles ("الشيخ", "الدكتور", ...) so they don't
+    // dominate scoring and pollute results with unrelated authors.
+    .filter((word) => !isHonorific(word));
 
   // Keep BOTH the original token and the ال-stripped form so we
   // recall titles whether the corpus stores "المدرسة" or "مدرسة".
+  // Honorific check applied to both forms so e.g. "الشيخ" → "شيخ" is
+  // also discarded.
   const expanded = new Set<string>();
   for (const t of tokens) {
     expanded.add(t);
-    if (t.startsWith("ال") && t.length > 3) expanded.add(t.slice(2));
+    if (t.startsWith("ال") && t.length > 3) {
+      const stripped = t.slice(2);
+      if (!isHonorific(stripped)) expanded.add(stripped);
+    }
   }
   return Array.from(expanded);
 }
@@ -347,3 +390,4 @@ export async function retrieveFromTopics(
         translatedFromLatin: usedTranslation,
   };
 }
+

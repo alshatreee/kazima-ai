@@ -1,4 +1,19 @@
-import Anthropic from "@anthropic-ai/sdk";
+/**
+ * Phase 2A — Kazima assistant query API.
+ *
+ * Pipeline (in order):
+ *   1. Validate request.
+ *   2. Scope guard — reject obviously off-topic queries cheaply.
+ *   3. Retrieval (DB + external) with English→Arabic NER and dedup.
+ *   4. Synthesis — Claude Haiku reads top snippets and writes a
+ *      coherent Arabic answer that cites source numbers.
+ *
+ * Cost guards live in `lib/llm-cost-guards.ts`:
+ *   • Per-IP rate limit (10/min)
+ *   • In-memory cache (1h TTL on normalized query)
+ *   • Daily $5 budget (falls back to keyword-only when exceeded)
+ */
+
 import { NextRequest, NextResponse } from "next/server";
 import type {
   AssistantQueryRequest,
@@ -15,13 +30,21 @@ import {
   validateAssistantQuery,
 } from "@/lib/kazima-assistant-contract";
 import { retrieveFromTopics } from "@/lib/kazima-retrieval";
-import {
-  buildScholarUserPrompt,
-  KAZIMA_SCHOLAR_SYSTEM_PROMPT,
-} from "@/lib/kazima-scholar-prompts";
 import { classifyScope } from "@/lib/kazima-scope-guard";
-
-const AI_MODEL = "claude-sonnet-4-20250514";
+import {
+  synthesizeAnswer,
+  type SynthesisResult,
+} from "@/lib/llm-synthesis";
+import {
+  cacheKey,
+  checkRateLimit,
+  clientIpFromHeaders,
+  getBudgetSnapshot,
+  getCached,
+  isBudgetExceeded,
+  recordSpend,
+  setCached,
+} from "@/lib/llm-cost-guards";
 
 function toDefaultCitations(
   sources: AssistantQueryResponse["retrieval"]["sources"],
@@ -53,8 +76,7 @@ function buildRetrievalSummaryAnswer(
   query: string,
   mode: AssistantResponseMode,
   sourceCount: number,
-  aiFallback: boolean,
-  externalUsed?: boolean,
+  fallbackReason?: string,
 ): string {
   if (sourceCount === 0) {
     return mode === "retrieve"
@@ -66,8 +88,8 @@ function buildRetrievalSummaryAnswer(
     return `عُثر في كاظمة على ${sourceCount} مادة مرتبطة بسؤالك. أعرض لك أقرب النتائج مع مقتطفات وروابط متابعة من داخل المنصة.`;
   }
 
-  if (aiFallback) {
-    return `عرضت لك أقرب المواد من كاظمة بدل التحليل الذكي، لأن طبقة الذكاء الاصطناعي غير متاحة حاليًا. يمكنك البدء من هذه النتائج ثم توسيعها لاحقًا.`;
+  if (fallbackReason) {
+    return fallbackReason;
   }
 
   return `تم تجهيز مواد كاظمة المرتبطة بسؤالك تمهيدًا لتحليل ذكي موثق.`;
@@ -80,13 +102,13 @@ function buildRetrievalOnlyResponse(
   options?: {
     disclaimer?: string;
     preserveRequestedMode?: boolean;
+    fallbackReason?: string;
   },
 ): AssistantQueryResponse {
   const sourceCount = retrieval.sources.length;
   const responseMode =
     options?.preserveRequestedMode && isAssistantAiMode(mode) ? mode : "retrieve";
   const fallback = createEmptyAssistantResponse(request.query, responseMode);
-  const aiFallback = mode !== "retrieve";
 
   const topItems = retrieval.sources
     .slice(0, 5)
@@ -111,7 +133,12 @@ function buildRetrievalOnlyResponse(
     scope: sourceCount > 0 ? "kazima_primary" : "needs_verification",
     confidence:
       sourceCount >= 3 ? "high" : sourceCount >= 1 ? "medium" : "low",
-    answer: buildRetrievalSummaryAnswer(request.query, mode, sourceCount, aiFallback, retrieval.externalSourcesUsed),
+    answer: buildRetrievalSummaryAnswer(
+      request.query,
+      mode,
+      sourceCount,
+      options?.fallbackReason,
+    ),
     summary:
       sourceCount > 0
         ? `تم العثور على ${sourceCount} نتيجة من كاظمة مرتبطة بالسؤال.`
@@ -145,63 +172,6 @@ function buildRetrievalOnlyResponse(
       externalSourcesUsed: retrieval.externalSourcesUsed ?? false,
     },
   };
-}
-
-/**
- * Strip ```json … ``` fences and any prose preamble before parsing.
- * The LLM occasionally wraps its JSON in fences which the previous
- * sanitizer did not handle, leaking the raw fence into the answer.
- */
-function extractJsonPayload(raw: string): string {
-  const trimmed = raw.trim();
-
-  // Fenced markdown code block.
-  const fence = trimmed.match(/```(?:json|JSON)?\s*([\s\S]*?)```/);
-  if (fence && fence[1]) return fence[1].trim();
-
-  // First well-formed object literal.
-  const firstBrace = trimmed.indexOf("{");
-  const lastBrace = trimmed.lastIndexOf("}");
-  if (firstBrace !== -1 && lastBrace > firstBrace) {
-    return trimmed.slice(firstBrace, lastBrace + 1);
-  }
-  return trimmed;
-}
-
-function sanitizeAiResponse(
-  rawJson: string,
-): { answer: string; summary: string; sections: Array<{ title: string; body: string }> } {
-  const candidate = extractJsonPayload(rawJson);
-  try {
-    const parsed = JSON.parse(candidate);
-    return {
-      answer: typeof parsed.answer === "string" ? parsed.answer : "",
-      summary: typeof parsed.summary === "string" ? parsed.summary : "",
-      sections: Array.isArray(parsed.sections) ? parsed.sections : [],
-    };
-  } catch {
-    // If the model returned plain prose (no JSON), use it directly.
-    return {
-      answer: candidate,
-      summary: "تم الحصول على النتيجة من طبقة الذكاء الاصطناعي.",
-      sections: [],
-    };
-  }
-}
-
-function validateScope(value?: string): string {
-  const validScopes = [
-    "kazima_primary",
-    "kazima_primary_plus_context",
-    "general_knowledge",
-    "needs_verification",
-  ];
-  return value && validScopes.includes(value) ? value : "needs_verification";
-}
-
-function validateConfidence(value?: string): string {
-  const validConfidences = ["high", "medium", "low"];
-  return value && validConfidences.includes(value) ? value : "medium";
 }
 
 function buildOutOfScopeResponse(
@@ -245,25 +215,71 @@ function buildOutOfScopeResponse(
   };
 }
 
+function buildSynthesizedResponse(
+  request: AssistantQueryRequest,
+  mode: AssistantResponseMode,
+  retrieval: Awaited<ReturnType<typeof retrieveFromTopics>>,
+  synthesis: SynthesisResult,
+): AssistantQueryResponse {
+  const sourceCount = retrieval.sources.length;
+  const fallback = createEmptyAssistantResponse(request.query, mode);
+
+  return {
+    ...fallback,
+    mode,
+    scope: synthesis.insufficient
+      ? "needs_verification"
+      : "kazima_primary_plus_context",
+    confidence: synthesis.insufficient
+      ? "low"
+      : sourceCount >= 3
+        ? "high"
+        : "medium",
+    answer: synthesis.answer,
+    summary: synthesis.insufficient
+      ? "لم تكفِ المقاطع المسترجعة لإجابة موثقة."
+      : `تم تحليل ${sourceCount} مصدر من كاظمة باستخدام Claude (${synthesis.usage.model}).`,
+    // Phase 2A keeps sections empty — the synthesis answer is the panel.
+    sections: [],
+    citations: toDefaultCitations(retrieval.sources),
+    readMore:
+      request.includeReadMore === false ? [] : toReadMore(retrieval.sources),
+    followUpQuestions: synthesis.insufficient
+      ? [
+          "هل تريد إعادة صياغة السؤال؟",
+          "هل تبحث عن شخص أو مؤسسة بعينها؟",
+        ]
+      : [
+          "هل تريد تعميق هذا التحليل؟",
+          "هل تريد استكشاف جوانب أخرى من الموضوع؟",
+        ],
+    retrieval: {
+      totalCandidates: retrieval.totalCandidates,
+      returnedSources: sourceCount,
+      sources: retrieval.sources,
+      externalSourcesUsed: retrieval.externalSourcesUsed ?? false,
+    },
+  };
+}
+
 export async function GET() {
+  const budget = getBudgetSnapshot();
   return NextResponse.json({
-    apiVersion: "1.1.0",
+    apiVersion: "2.0.0",
     modes: ["retrieve", "brief", "research"],
-    description: "Kazima Assistant hybrid query API (with scope guard + dedup + LLM synthesis)",
+    description:
+      "Kazima Assistant query API — scope guard + retrieval + Claude synthesis (Phase 2A)",
+    budget,
   });
 }
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-
     const validation = validateAssistantQuery(body);
     if (!validation.ok) {
       return NextResponse.json(
-        {
-          error: "طلب غير صالح",
-          details: validation.errors,
-        },
+        { error: "طلب غير صالح", details: validation.errors },
         { status: 400 },
       );
     }
@@ -271,18 +287,12 @@ export async function POST(request: NextRequest) {
     const {
       query,
       mode: requestMode,
-      userIntent,
       maxSources: requestMaxSources,
-      includeReadMore,
     } = validation.data;
-
     const mode = normalizeAssistantMode(requestMode);
     const maxSources = clampMaxSources(requestMaxSources);
 
-    // ── Scope guard (Phase 1) ──────────────────────────────────
-    // Reject obviously off-topic queries before retrieval to avoid
-    // surfacing irrelevant heritage articles for things like
-    // "Bitcoin price" or "ما عاصمة فرنسا؟".
+    // ── Scope guard (Phase 1) ─────────────────────────────────────────────
     const scopeDecision = classifyScope(query);
     if (!scopeDecision.inScope) {
       return NextResponse.json(
@@ -290,6 +300,22 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // ── Rate limit (Phase 2A cost guard) ──────────────────────────────────
+    const ip = clientIpFromHeaders(request.headers);
+    const limit = checkRateLimit(ip);
+    if (!limit.allowed && isAssistantAiMode(mode)) {
+      // Soft-fail: degrade to retrieve-only with notice rather than 429.
+      const retrieval = await retrieveFromTopics(query, maxSources);
+      return NextResponse.json(
+        buildRetrievalOnlyResponse(validation.data, mode, retrieval, {
+          preserveRequestedMode: true,
+          disclaimer:
+            "تم تجاوز الحد المسموح من طلبات الذكاء الاصطناعي لهذه الدقيقة. عرضنا لك نتائج البحث المباشر بدلاً من ذلك.",
+        }),
+      );
+    }
+
+    // ── Retrieval (Phase 1) ───────────────────────────────────────────────
     const retrieval = await retrieveFromTopics(query, maxSources);
 
     if (mode === "retrieve") {
@@ -298,69 +324,60 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // ── No API key or no sources — fall back to retrieve-only ─────────────
     const hasApiKey = Boolean(process.env.ANTHROPIC_API_KEY);
     if (!hasApiKey || retrieval.sources.length === 0) {
       return NextResponse.json(
         buildRetrievalOnlyResponse(validation.data, mode, retrieval, {
           preserveRequestedMode: true,
+          fallbackReason: !hasApiKey
+            ? "طبقة الذكاء الاصطناعي غير متاحة (API key مفقود)؛ نعرض لك أقرب النتائج المباشرة."
+            : undefined,
         }),
       );
     }
 
-    const client = new Anthropic();
-
-    const userPrompt = buildScholarUserPrompt({
-      request: { query, mode, userIntent },
-      sources: retrieval.sources,
-    });
-
-    const aiResponse = await client.messages.create({
-      model: AI_MODEL,
-      max_tokens: 2000,
-      system: KAZIMA_SCHOLAR_SYSTEM_PROMPT,
-      messages: [
-        {
-          role: "user",
-          content: userPrompt,
-        },
-      ],
-    });
-
-    const aiContent = aiResponse.content[0];
-    if (aiContent.type !== "text") {
+    // ── Daily budget guard ────────────────────────────────────────────────
+    if (isBudgetExceeded()) {
       return NextResponse.json(
         buildRetrievalOnlyResponse(validation.data, mode, retrieval, {
           preserveRequestedMode: true,
+          disclaimer:
+            "تم تجاوز ميزانية الذكاء الاصطناعي لهذا اليوم؛ سنعود تلقائيًا غدًا. نعرض الآن نتائج البحث المباشر.",
         }),
       );
     }
 
-    const sanitized = sanitizeAiResponse(aiContent.text);
+    // ── Cache hit? ────────────────────────────────────────────────────────
+    const ck = cacheKey(query, mode);
+    const cached = getCached(ck);
+    if (cached) {
+      return NextResponse.json(
+        buildSynthesizedResponse(validation.data, mode, retrieval, cached),
+      );
+    }
 
-    return NextResponse.json({
-      query,
-      mode,
-      scope: validateScope("kazima_primary_plus_context"),
-      confidence: validateConfidence("high"),
-      answer: sanitized.answer,
-      summary:
-        sanitized.summary ||
-        `تم تحليل ${retrieval.sources.length} مصدر من كاظمة باستخدام الذكاء الاصطناعي.`,
-      sections: sanitized.sections,
-      citations: toDefaultCitations(retrieval.sources),
-      readMore:
-        includeReadMore === false ? [] : toReadMore(retrieval.sources),
-      followUpQuestions: [
-        "هل تريد تعميق هذا التحليل؟",
-        "هل تريد استكشاف جوانب أخرى من الموضوع؟",
-      ],
-      retrieval: {
-        totalCandidates: retrieval.totalCandidates,
-        returnedSources: retrieval.sources.length,
-        sources: retrieval.sources,
-        externalSourcesUsed: retrieval.externalSourcesUsed ?? false,
-      },
-    } as AssistantQueryResponse);
+    // ── Synthesize ────────────────────────────────────────────────────────
+    let synthesis: SynthesisResult;
+    try {
+      synthesis = await synthesizeAnswer(query, retrieval.sources);
+    } catch (err) {
+      console.error("[query] synthesis failed:", err);
+      return NextResponse.json(
+        buildRetrievalOnlyResponse(validation.data, mode, retrieval, {
+          preserveRequestedMode: true,
+          disclaimer:
+            "تعذّر استدعاء طبقة الذكاء الاصطناعي مؤقتًا؛ نعرض لك نتائج البحث المباشر.",
+        }),
+      );
+    }
+
+    recordSpend(synthesis.usage.costUsd);
+    setCached(ck, synthesis);
+
+    return NextResponse.json(
+      buildSynthesizedResponse(validation.data, mode, retrieval, synthesis),
+    );
   } catch (error) {
     console.error("API error:", error);
     return NextResponse.json(

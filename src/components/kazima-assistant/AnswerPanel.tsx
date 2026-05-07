@@ -5,6 +5,37 @@ type AnswerPanelProps = {
   response: AssistantResponse;
 };
 
+/**
+ * Highlight inline citation markers like (1) (2) so the synthesized
+ * answer visually links to the source cards below the panel.
+ */
+function renderAnswerWithCitations(text: string): React.ReactNode[] {
+  const parts: React.ReactNode[] = [];
+  const re = /\((\d{1,2})\)/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  let key = 0;
+  while ((match = re.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(text.slice(lastIndex, match.index));
+    }
+    parts.push(
+      <sup
+        key={`cite-${key++}`}
+        className="mx-0.5 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[var(--sage)] px-1.5 text-[0.7rem] font-semibold text-white"
+        title={`المصدر رقم ${match[1]}`}
+      >
+        {match[1]}
+      </sup>,
+    );
+    lastIndex = re.lastIndex;
+  }
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex));
+  }
+  return parts;
+}
+
 export function AnswerPanel({ response }: AnswerPanelProps) {
   const hasAnswer = response.answer.trim().length > 0;
   const hasSections = response.sections.length > 0;
@@ -30,12 +61,16 @@ export function AnswerPanel({ response }: AnswerPanelProps) {
         </div>
       </div>
 
-      {/* Summary box */}
-      {response.summary ? (
-        <div className="mb-5 rounded-[1.5rem] bg-[rgba(48,74,64,0.05)] p-4 sm:p-5">
-          <p className="text-sm font-medium leading-8 text-[var(--foreground)] sm:text-[0.95rem]">
-            {response.summary}
-          </p>
+      {/* Synthesized answer (Phase 2A) — render at top with inline citations */}
+      {hasAnswer && !hasSections ? (
+        <div className="mb-5 rounded-[1.75rem] border border-[var(--line)] bg-[rgba(255,255,255,0.85)] p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)]">
+          <div className="mb-4 flex flex-wrap gap-2">
+            <span className="kazima-pill">إجابة موجزة من Claude</span>
+            <span className="kazima-pill">يستحسن المراجعة البشرية</span>
+          </div>
+          <div className="kazima-scroll max-h-[34rem] overflow-auto whitespace-pre-wrap text-sm leading-8 text-[var(--foreground)] sm:text-[0.95rem]">
+            {renderAnswerWithCitations(response.answer)}
+          </div>
         </div>
       ) : null}
 
@@ -55,17 +90,6 @@ export function AnswerPanel({ response }: AnswerPanelProps) {
               </p>
             </div>
           ))}
-        </div>
-      ) : hasAnswer ? (
-        /* Plain answer (brief mode) */
-        <div className="rounded-[1.75rem] border border-[var(--line)] bg-[rgba(255,255,255,0.72)] p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)]">
-          <div className="mb-4 flex flex-wrap gap-2">
-            <span className="kazima-pill">نتيجة أولية قابلة للتحرير</span>
-            <span className="kazima-pill">يفضل مراجعتها بشريًا</span>
-          </div>
-          <div className="kazima-scroll max-h-[34rem] overflow-auto whitespace-pre-wrap text-sm leading-8 text-[var(--foreground)] sm:text-[0.95rem]">
-            {response.answer}
-          </div>
         </div>
       ) : null}
 

@@ -1,6 +1,25 @@
 import type { CitationItem } from "./types";
 import { Indicator } from "./Indicator";
 
+/**
+ * Arabic grammar-aware pluralization for "source" (مصدر).
+ *  - 0       → "لا توجد مصادر"
+ *  - 1       → "مصدر واحد"
+ *  - 2       → "مصدران"
+ *  - 3..10   → "{n} مصادر"
+ *  - 11+     → "{n} مصدراً"
+ */
+export function arabicSourcesPlural(n: number): string {
+  if (!Number.isFinite(n) || n < 0) return "لا توجد مصادر";
+  const i = Math.floor(n);
+  if (i === 0) return "لا توجد مصادر";
+  if (i === 1) return "مصدر واحد";
+  if (i === 2) return "مصدران";
+  if (i >= 3 && i <= 10) return `${i} مصادر`;
+  return `${i} مصدراً`;
+}
+
+
 type CitationsPanelProps = {
   citations: CitationItem[];
 };
@@ -18,7 +37,7 @@ export function CitationsPanel({ citations }: CitationsPanelProps) {
           <h3 className="mt-2 text-lg font-semibold">مصادر من قاعدة كاظمة</h3>
         </div>
         <span className="kazima-badge">
-          {citations.length} {citations.length === 1 ? "مصدر" : "مصادر"}
+          {arabicSourcesPlural(citations.length)}
         </span>
       </div>
 

@@ -15,7 +15,7 @@ import {
 // ── Arabic text normalization (mirrors mukhtasar's normalize function) ────────
 // mukhtasar pip package: https://github.com/alshatreee/mukhtasar
 // Python preprocessing bridge: examples/kazima_integration.py in mukhtasar repo
-const ARABIC_DIACRITICS_RE = /[ؐ-ًؚ-ٰٟۖ-ۜ۟-۪ۨ-ۭ]/g;
+const ARABIC_DIACRITICS_RE = /[\u064B-\u0652\u0670\u06D6-\u06ED]/g;
 const ARABIC_TATWEEL_RE = /ـ+/g;
 const ARABIC_ALEF_RE = /[إأآا]/g;
 const ARABIC_TEH_MARBUTA_RE = /ة/g;

@@ -332,6 +332,22 @@ export async function retrieveFromTopics(
                                                                if (longPlain.includes(keyword)) score += 1;
                                                      }
 
+                                                     // Bigram co-occurrence boost: if the query carries 2+ Arabic name
+                                                     // tokens (e.g. "يوسف" + "القناعي") and the source mentions BOTH,
+                                                     // multiply score by 1.5. Disambiguates same-honorific authors.
+                                                     // See Bug Q1.
+                                                     const arabicNameTokens = keywords.filter(
+                                                       (k) => /^[\u0600-\u06FF]+$/.test(k) && k.length >= 3,
+                                                     );
+                                                     if (arabicNameTokens.length >= 2) {
+                                                       const haystack = titleLower + " " + shortPlain + " " + longPlain;
+                                                       const hits = arabicNameTokens.reduce(
+                                                         (n, t) => (haystack.includes(t) ? n + 1 : n),
+                                                         0,
+                                                       );
+                                                       if (hits >= 2) score = score * 1.5;
+                                                     }
+
                                                      return { ...topic, score };
       });
 

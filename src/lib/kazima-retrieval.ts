@@ -118,6 +118,19 @@ function splitKeywords(query: string): string[] {
  * Latin tokens themselves so external English-language sources still
  * match.
  */
+// English stopwords / filler tokens dropped when we've translated a
+// Latin query into Arabic — otherwise they crowd out the real Arabic
+// name tokens in SQL AND scoring (e.g. "who", "is", "bin", "al" matched
+// every source → unrelated authors win). See Bug Q3.
+const ENGLISH_STOPWORDS_LATIN = new Set<string>([
+  "who", "is", "the", "a", "an", "of", "to", "for", "in", "on", "at",
+  "by", "bin", "al", "and", "or", "what", "when", "where", "why", "how",
+]);
+
+function isLatinToken(token: string): boolean {
+  return /^[A-Za-z]+$/.test(token);
+}
+
 function buildKeywords(query: string): { keywords: string[]; usedTranslation: boolean } {
     const baseKeywords = splitKeywords(query);
 
@@ -136,8 +149,20 @@ function buildKeywords(query: string): { keywords: string[]; usedTranslation: bo
     for (const k of splitKeywords(term)) translated.push(k);
   }
 
-  // Combine: translated Arabic first (preferred), original Latin second.
-  const merged = new Set<string>([...translated, ...baseKeywords]);
+  // Once translated, drop short / stopword Latin tokens so the SQL AND
+  // doesn't get crowded out by "who", "is", "bin", "al" matching every
+  // source. Keep meaningful Latin tokens (>=4 chars not in stopword list)
+  // for external-source recall.
+  const filteredLatin = baseKeywords.filter((k) => {
+    if (!isLatinToken(k)) return true; // keep Arabic / mixed tokens
+    const lower = k.toLowerCase();
+    if (lower.length < 4) return false;
+    if (ENGLISH_STOPWORDS_LATIN.has(lower)) return false;
+    return true;
+  });
+
+  // Combine: translated Arabic first (preferred), filtered Latin second.
+  const merged = new Set<string>([...translated, ...filteredLatin]);
   return { keywords: Array.from(merged), usedTranslation: true };
 }
 
@@ -305,6 +330,22 @@ export async function retrieveFromTopics(
                                                                if (titleLower.includes(normalizedKeyword)) score += 3;
                                                                if (shortPlain.includes(keyword)) score += 2;
                                                                if (longPlain.includes(keyword)) score += 1;
+                                                     }
+
+                                                     // Bigram co-occurrence boost: if the query carries 2+ Arabic name
+                                                     // tokens (e.g. "يوسف" + "القناعي") and the source mentions BOTH,
+                                                     // multiply score by 1.5. Disambiguates same-honorific authors.
+                                                     // See Bug Q1.
+                                                     const arabicNameTokens = keywords.filter(
+                                                       (k) => /^[\u0600-\u06FF]+$/.test(k) && k.length >= 3,
+                                                     );
+                                                     if (arabicNameTokens.length >= 2) {
+                                                       const haystack = titleLower + " " + shortPlain + " " + longPlain;
+                                                       const hits = arabicNameTokens.reduce(
+                                                         (n, t) => (haystack.includes(t) ? n + 1 : n),
+                                                         0,
+                                                       );
+                                                       if (hits >= 2) score = score * 1.5;
                                                      }
 
                                                      return { ...topic, score };

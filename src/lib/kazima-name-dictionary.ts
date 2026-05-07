@@ -93,8 +93,7 @@ const NAME_MAP: Map<string, NameEntry> = new Map();
 function normKey(k: string): string {
   return k
     .toLowerCase()
-    .replace(/[‘’']/g, "")
-    .replace(/[-_]+/g, " ")
+    .replace(/[^a-z0-9 ]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 }

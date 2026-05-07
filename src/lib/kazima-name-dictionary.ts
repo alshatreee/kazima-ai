@@ -37,9 +37,17 @@ const RAW: Record<string, NameEntry> = {
 
   // ── Scholars / ulema / authors ──────────────────────────────────
   "yusuf bin issa al-qenaei": { arabic: ["يوسف بن عيسى القناعي", "القناعي", "الشيخ يوسف بن عيسى القناعي"] },
+  "yusuf bin isa al-qenaei": { arabic: ["يوسف بن عيسى القناعي", "القناعي"] },
+  "yusuf ibn issa al-qenaei": { arabic: ["يوسف بن عيسى القناعي", "القناعي"] },
   "yusuf al-qenaei": { arabic: ["يوسف القناعي", "يوسف بن عيسى القناعي", "القناعي"] },
+  "yusuf al qenaei": { arabic: ["يوسف القناعي", "يوسف بن عيسى القناعي", "القناعي"] },
   "al-qenaei": { arabic: ["القناعي", "يوسف بن عيسى القناعي"] },
+  "al qenaei": { arabic: ["القناعي", "يوسف بن عيسى القناعي"] },
   "qenaei": { arabic: ["القناعي"] },
+  "qinai": { arabic: ["القناعي", "يوسف بن عيسى القناعي"] },
+  "al-qina'i": { arabic: ["القناعي", "يوسف بن عيسى القناعي"] },
+  "al qinai": { arabic: ["القناعي", "يوسف بن عيسى القناعي"] },
+  "qina'i": { arabic: ["القناعي", "يوسف بن عيسى القناعي"] },
   "abdulaziz al-rasheed": { arabic: ["عبدالعزيز الرشيد", "الشيخ عبدالعزيز الرشيد"] },
   "abd al-aziz al-rashid": { arabic: ["عبدالعزيز الرشيد"] },
   "khaled al-adsani": { arabic: ["خالد العدساني"] },

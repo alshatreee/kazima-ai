@@ -66,6 +66,7 @@ export default function EmbedSearch() {
             value={text}
             onChange={(e) => setText(e.target.value)}
             placeholder="ابحث في كاظمة..."
+            aria-label="ابحث في كاظمة"
             className="embed-input"
           />
           <button

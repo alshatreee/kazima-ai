@@ -13,7 +13,7 @@ export function AssistantHeader({
         <div className="space-y-3">
           <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--muted)]">
             <span className="kazima-badge">مساعد كاظمة العلمي</span>
-            <span className="kazima-badge">RAG + Claude</span>
+            <span className="kazima-badge">استرجاع + ذكاء كاظمة</span>
           </div>
           <div className="space-y-2">
             <h1 className="kazima-display text-4xl leading-none sm:text-5xl">
@@ -46,7 +46,7 @@ export function AssistantHeader({
             <div className="mt-3 text-3xl font-semibold text-[var(--sage)]">
               {sourcesCount > 0
                 ? sourcesCount.toLocaleString("ar-SA")
-                : "RAG"}
+                : "—"}
             </div>
             <p className="mt-2 text-sm leading-6 text-[var(--muted)]">
               استرجاع من قاعدة كاظمة

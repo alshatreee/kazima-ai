@@ -38,6 +38,7 @@ export function QueryComposer({
           value={query}
           onChange={(event) => onQueryChange(event.target.value)}
           placeholder="مثال: ما هي المدرسة المباركية؟ من هم أبرز علماء الكويت؟ ما تاريخ التعليم الديني في الخليج؟"
+          aria-label="سؤالك للمساعد"
           className="kazima-input h-28 resize-y"
           dir="rtl"
         />

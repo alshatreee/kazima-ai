@@ -21,7 +21,7 @@ import {
 } from "@/lib/kazima-scholar-prompts";
 import { classifyScope } from "@/lib/kazima-scope-guard";
 
-const AI_MODEL = "claude-sonnet-4-20250514";
+const AI_MODEL = process.env.KAZIMA_CLAUDE_MODEL || "claude-sonnet-4-5";
 
 function toDefaultCitations(
   sources: AssistantQueryResponse["retrieval"]["sources"],
@@ -316,7 +316,7 @@ export async function POST(request: NextRequest) {
 
     const aiResponse = await client.messages.create({
       model: AI_MODEL,
-      max_tokens: 2000,
+      max_tokens: mode === "research" ? 4000 : 2000,
       system: KAZIMA_SCHOLAR_SYSTEM_PROMPT,
       messages: [
         {

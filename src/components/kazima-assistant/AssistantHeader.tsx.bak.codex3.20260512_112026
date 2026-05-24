@@ -46,7 +46,7 @@ export function AssistantHeader({
             <div className="mt-3 text-3xl font-semibold text-[var(--sage)]">
               {sourcesCount > 0
                 ? sourcesCount.toLocaleString("ar-SA")
-                : "—"}
+                : "RAG"}
             </div>
             <p className="mt-2 text-sm leading-6 text-[var(--muted)]">
               استرجاع من قاعدة كاظمة

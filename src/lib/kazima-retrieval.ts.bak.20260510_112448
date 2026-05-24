@@ -40,35 +40,12 @@ const NBSP_RE = /&nbsp;/g;
 const MULTI_SPACE_RE = /\s{2,}/g;
 const NON_WORD_RE = /[^\p{L}\p{N}]+/gu;
 
-function decodeHtmlEntities(s: string): string {
-    return s
-      .replace(/&nbsp;/g, " ")
-      .replace(/&laquo;/g, "«")
-      .replace(/&raquo;/g, "»")
-      .replace(/&ldquo;/g, "“")
-      .replace(/&rdquo;/g, "”")
-      .replace(/&lsquo;/g, "‘")
-      .replace(/&rsquo;/g, "’")
-      .replace(/&quot;/g, '"')
-      .replace(/&apos;/g, "'")
-      .replace(/&amp;/g, "&")
-      .replace(/&lt;/g, "<")
-      .replace(/&gt;/g, ">")
-      .replace(/&hellip;/g, "...")
-      .replace(/&mdash;/g, "—")
-      .replace(/&ndash;/g, "–")
-      .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(parseInt(n, 10)))
-      .replace(/&#x([0-9a-fA-F]+);/g, (_, n) => String.fromCodePoint(parseInt(n, 16)))
-      .replace(/&[a-zA-Z]+;/g, "");
-}
-
 function stripHtml(html: string): string {
-    return decodeHtmlEntities(
-        html
-          .replace(HTML_TAG_RE, "")
-          .replace(MULTI_SPACE_RE, " ")
-          .trim()
-    );
+    return html
+      .replace(HTML_TAG_RE, "")
+      .replace(NBSP_RE, " ")
+      .replace(MULTI_SPACE_RE, " ")
+      .trim();
 }
 
 function splitKeywords(query: string): string[] {
@@ -249,23 +226,7 @@ export async function retrieveFromTopics(
                 whereClause.pageId = { in: filters.pageIds };
         }
 
-      // Pre-compute specific (informative) keywords so the SQL pre-filter
-      // privileges them. Stop tokens like "الشيخ" / "بن" otherwise pull in
-      // huge unrelated candidate sets and crowd out the right pages.
-      const PRE_STOP = new Set<string>([
-        "الشيخ","شيخ","الدكتور","دكتور","استاذ","الاستاذ","سيد","السيد",
-        "في","من","الى","على","عن","عند","ابن","بن","بنت","ال","الله","عبد",
-        "محمد","احمد","علي","يوسف","عبدالله","حسين","حسن","ابراهيم","عمر",
-        "the","of","and","or","sheikh","dr","prof",
-      ]);
-      const _preSpecific = keywords.filter((k) => {
-        const n = normalizeArabic(k).toLowerCase();
-        return n.length >= 4 && !PRE_STOP.has(n);
-      });
-      // Build OR conditions favouring specific keywords; if none, fall back
-      // to all keywords.
-      const _orKeywords = _preSpecific.length > 0 ? _preSpecific : keywords;
-      const orConditions = _orKeywords.flatMap((keyword) => [
+      const orConditions = keywords.flatMap((keyword) => [
         { title: { contains: keyword } },
         { contentShort: { contains: keyword } },
         { contentLong: { contains: keyword } },
@@ -276,7 +237,7 @@ export async function retrieveFromTopics(
                         ...whereClause,
                         OR: orConditions,
               },
-              take: Math.max(maxSources * 8, 40),
+              take: maxSources * 4,
               select: {
                         topicId: true,
                         title: true,
@@ -290,50 +251,19 @@ export async function retrieveFromTopics(
 
       totalCandidates = topics.length;
 
-      // Stop-words / common particles that should not count as specific
-      // discriminators (Q1 fix: query "الشيخ يوسف القناعي" returned
-      // "البدعة" pages because "الشيخ" / "محمد" matched too generically).
-      const STOP = new Set<string>([
-        "الشيخ","شيخ","الدكتور","دكتور","استاذ","الاستاذ","سيد","السيد",
-        "في","من","الى","على","عن","عند","ابن","بن","بنت","ال","الله","عبد",
-        "محمد","احمد","علي","يوسف","عبدالله","حسين","حسن","ابراهيم","عمر",
-        "the","of","and","or","sheikh","dr","prof",
-      ]);
-      const specificKeywords = keywords.filter((k) => {
-        const n = normalizeArabic(k).toLowerCase();
-        return n.length >= 4 && !STOP.has(n);
-      });
-      const hasSpecific = specificKeywords.length > 0;
       const scored: ScoredTopic[] = topics.map((topic) => {
               let score = 0;
               const titleLower = topic.title.toLowerCase();
-              const titleNorm = normalizeArabic(topic.title).toLowerCase();
               const shortPlain = stripHtml(topic.contentShort || "");
               const longPlain = stripHtml(topic.contentLong || "");
-              const shortNorm = normalizeArabic(shortPlain).toLowerCase();
-              const longNorm = normalizeArabic(longPlain).toLowerCase();
-              let specificHitsAny = 0;
 
                                                      for (const keyword of keywords) {
-                                                               const kNorm = normalizeArabic(keyword).toLowerCase();
-                                                               const inTitle = titleNorm.includes(kNorm);
-                                                               const inShort = shortNorm.includes(kNorm);
-                                                               const inLong = longNorm.includes(kNorm);
-                                                               if (inTitle) score += 3;
-                                                               if (inShort) score += 2;
-                                                               if (inLong) score += 1;
-                                                               if (specificKeywords.includes(keyword)) {
-                                                                         if (inTitle) score += 5;
-                                                                         if (inTitle || inShort || inLong) specificHitsAny++;
-                                                               }
+                                                               const normalizedKeyword = keyword.toLowerCase();
+                                                               if (titleLower.includes(normalizedKeyword)) score += 3;
+                                                               if (shortPlain.includes(keyword)) score += 2;
+                                                               if (longPlain.includes(keyword)) score += 1;
                                                      }
 
-                                                     // Drop hits that contain ZERO specific keywords when the
-                                                     // query had specific keywords. This is the "بدعة remnant" fix:
-                                                     // such pages otherwise piggy-back on stop-word matches.
-                                                     if (hasSpecific && specificHitsAny === 0) {
-                                                               return { ...topic, score: 0 };
-                                                     }
                                                      return { ...topic, score };
       });
 

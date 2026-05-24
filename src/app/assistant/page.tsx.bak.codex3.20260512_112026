@@ -136,7 +136,7 @@ export default function AssistantPage() {
             والنشر الأكاديمي.
           </p>
           <p className="tracking-[0.2em] text-[var(--accent-strong)]">
-            كاظمة.أورج
+            KAZIMA.ORG
           </p>
         </div>
       </footer>

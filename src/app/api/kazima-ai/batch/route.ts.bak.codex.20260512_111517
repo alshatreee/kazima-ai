@@ -3,27 +3,13 @@ import { prisma } from "@/lib/prisma";
 import { processKazimaAI } from "@/lib/kazima-ai";
 
 // POST /api/kazima-ai/batch — Process multiple articles for entity extraction
-//
-// Admin-only. Requires header `X-Kazima-Admin-Token` matching
-// `KAZIMA_ADMIN_TOKEN` in `.env`. `limit` is clamped to [1, 25] to bound
-// model spend and DB writes per call.
 export async function POST(request: NextRequest) {
   try {
-    const adminToken = request.headers.get("x-kazima-admin-token");
-    const expected = process.env.KAZIMA_ADMIN_TOKEN;
-    if (!expected || !adminToken || adminToken !== expected) {
-      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-    }
-
     if (!prisma) {
       return NextResponse.json({ error: "Database not configured" }, { status: 503 });
     }
 
-    const body = await request.json().catch(() => ({}));
-    const rawLimit = Number(body.limit ?? 10);
-    const rawOffset = Number(body.offset ?? 0);
-    const limit = Math.min(25, Math.max(1, Number.isFinite(rawLimit) ? Math.trunc(rawLimit) : 10));
-    const offset = Math.max(0, Number.isFinite(rawOffset) ? Math.trunc(rawOffset) : 0);
+    const { limit = 10, offset = 0 } = await request.json();
 
     // Fetch articles from database
     const topics = await prisma.topic.findMany({

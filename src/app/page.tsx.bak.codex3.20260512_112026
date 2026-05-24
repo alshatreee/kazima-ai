@@ -29,7 +29,7 @@ export default function Home() {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    await submitQuery(text, "brief");
+    await submitQuery(text, "retrieve");
   }
 
   function handleFollowUp(question: string) {
@@ -53,7 +53,7 @@ export default function Home() {
       <div className="search-bar-wrapper">
         <form onSubmit={handleSubmit} className="search-form">
           <div className="search-bar">
-            <input type="text" value={text} onChange={(e) => setText(e.target.value)} placeholder="ابحث في كاظمة..." aria-label="ابحث في كاظمة" className="search-input" dir="rtl" />
+            <input type="text" value={text} onChange={(e) => setText(e.target.value)} placeholder="ابحث في كاظمة..." className="search-input" dir="rtl" />
             <button type="submit" disabled={loading || !text.trim()} className="search-btn" aria-label="بحث">
               {loading ? (<span className="search-spinner" />) : (
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">

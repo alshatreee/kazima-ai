@@ -174,10 +174,18 @@ function sanitizeAiResponse(
   const candidate = extractJsonPayload(rawJson);
   try {
     const parsed = JSON.parse(candidate);
+    // Normalize section keys: accept {title|heading, body|content} from LLM
+    const rawSections = Array.isArray(parsed.sections) ? parsed.sections : [];
+    const sections = rawSections.map((s: Record<string, unknown>) => ({
+      title: typeof s?.title === "string" ? s.title :
+             typeof s?.heading === "string" ? s.heading : "",
+      body:  typeof s?.body === "string" ? s.body :
+             typeof s?.content === "string" ? s.content : "",
+    })).filter((s: { title: string; body: string }) => s.title || s.body);
     return {
       answer: typeof parsed.answer === "string" ? parsed.answer : "",
       summary: typeof parsed.summary === "string" ? parsed.summary : "",
-      sections: Array.isArray(parsed.sections) ? parsed.sections : [],
+      sections,
     };
   } catch {
     // If the model returned plain prose (no JSON), use it directly.

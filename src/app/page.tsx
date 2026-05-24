@@ -33,12 +33,21 @@ export default function Home() {
   }
 
   function handleFollowUp(question: string) {
-    if (question.includes("تلخيص")) {
+    // Map common follow-up phrasings to modes
+    if (question.includes("تلخيص") || question.includes("ملخص")) {
       submitQuery(text, "brief");
-    } else if (question.includes("بحثية موثقة")) {
+    } else if (question.includes("بحثية موثقة") || question.includes("تعميق") || question.includes("تحليل أعمق")) {
+      submitQuery(text, "research");
+    } else if (question.includes("استكشاف") || question.includes("جوانب أخرى")) {
+      // Open-ended exploration → research with original query
+      submitQuery(text, "research");
+    } else if (question.startsWith("هل")) {
+      // Generic yes/no follow-up → re-query with research depth
       submitQuery(text, "research");
     } else {
+      // Treat as a new question
       setText(question);
+      submitQuery(question, "brief");
     }
   }
 

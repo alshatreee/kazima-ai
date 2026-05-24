@@ -1,6 +1,6 @@
 "use client";
 
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 import type { AssistantQueryResponse } from "@/lib/kazima-assistant-contract";
 
 export default function Home() {
@@ -8,6 +8,18 @@ export default function Home() {
   const [result, setResult] = useState<AssistantQueryResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  // Auto-execute query from URL (?q=...) — for embedding kazima.org search
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const q = params.get("q");
+    if (q && q.trim()) {
+      setText(q.trim());
+      submitQuery(q.trim(), "brief");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function submitQuery(queryText: string, mode: string) {
     if (!queryText.trim()) return;
